@@ -1,0 +1,109 @@
+"""Answer generation grounded in retrieved context.
+
+The generator's job is narrow and safety-critical: answer **only** from the supplied contexts and
+cite them, or say it doesn't know. That instruction (plus passing numbered contexts) is what turns
+retrieval into a trustworthy, attributable answer instead of a confident hallucination.
+
+`FakeAnswerer` makes the pipeline testable with no model call; `LLMAnswerer` calls Anthropic or
+OpenAI for real synthesis.
+"""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from rag_assistant.errors import GenerationError
+from rag_assistant.models import Answer, Citation, RetrievedChunk
+
+_SYSTEM = (
+    "You are a precise question-answering assistant. Answer ONLY using the numbered context "
+    "passages provided. If the answer is not in the context, say you don't know. Be concise and "
+    "cite the passage numbers you used, e.g. [1], [2]."
+)
+
+
+def _format_contexts(contexts: list[RetrievedChunk]) -> str:
+    return "\n\n".join(
+        f"[{i}] (doc: {c.chunk.doc_id}) {c.chunk.text}" for i, c in enumerate(contexts, start=1)
+    )
+
+
+def _build_prompt(question: str, contexts: list[RetrievedChunk]) -> str:
+    return f"Context passages:\n{_format_contexts(contexts)}\n\nQuestion: {question}"
+
+
+def _citations(contexts: list[RetrievedChunk]) -> list[Citation]:
+    return [
+        Citation(chunk_id=c.chunk.id, doc_id=c.chunk.doc_id, quote=c.chunk.text[:160])
+        for c in contexts
+    ]
+
+
+class Answerer(Protocol):
+    def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer: ...
+
+
+class FakeAnswerer:
+    """Deterministic answerer for tests and offline demos — no network."""
+
+    def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer:
+        if not contexts:
+            return Answer(question=question, text="I don't know — no relevant context found.")
+        top = contexts[0].chunk
+        text = f"Based on {len(contexts)} passage(s), see doc '{top.doc_id}'. [1]"
+        return Answer(
+            question=question, text=text, citations=_citations(contexts), contexts=contexts
+        )
+
+
+class LLMAnswerer:
+    """Real synthesis via Anthropic or OpenAI."""
+
+    def __init__(
+        self,
+        *,
+        provider: str,
+        model: str,
+        max_tokens: int,
+        api_key: str | None = None,
+    ) -> None:
+        self._provider = provider
+        self._model = model
+        self._max_tokens = max_tokens
+        self._api_key = api_key
+
+    def _generate(self, system: str, prompt: str) -> str:
+        if self._provider == "anthropic":
+            from anthropic import Anthropic
+
+            aclient = Anthropic(api_key=self._api_key)
+            resp = aclient.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return "".join(b.text for b in resp.content if b.type == "text")
+        if self._provider == "openai":
+            from openai import OpenAI
+
+            oclient = OpenAI(api_key=self._api_key)
+            completion = oclient.chat.completions.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                temperature=0,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            return completion.choices[0].message.content or ""
+        raise GenerationError(f"Unknown generation provider '{self._provider}'.")
+
+    def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer:
+        if not contexts:
+            return Answer(question=question, text="I don't know — no relevant context found.")
+        text = self._generate(_SYSTEM, _build_prompt(question, contexts))
+        return Answer(
+            question=question, text=text, citations=_citations(contexts), contexts=contexts
+        )
