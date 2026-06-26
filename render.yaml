@@ -1,0 +1,18 @@
+# Render blueprint — deploy the API as a Docker web service.
+# Create a Render account, connect this repo, and Render reads this file.
+# (Equivalent fly.io / Railway configs are a Dockerfile + a start command.)
+
+services:
+  - type: web
+    name: rag-knowledge-assistant
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: VECTOR_STORE
+        value: memory          # use pgvector + DATABASE_URL for a persistent deployment
+      # Set these as secrets in the Render dashboard for live embeddings / generation:
+      # - key: OPENAI_API_KEY
+      # - key: ANTHROPIC_API_KEY
