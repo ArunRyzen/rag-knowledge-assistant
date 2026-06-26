@@ -11,6 +11,17 @@ recall@k / MRR evaluation. Runs zero-infra in memory, or on Postgres + pgvector.
 
 ---
 
+## ⚡ Quick Start
+
+```bash
+git clone https://github.com/Arunops700/rag-knowledge-assistant.git && cd rag-knowledge-assistant
+uv sync --extra dev          # installs everything — no API keys needed
+uv run rag eval              # compare dense vs sparse vs hybrid retrieval
+```
+*Runs fully offline.* Add `OPENAI_API_KEY` (embeddings) / `ANTHROPIC_API_KEY` (answers) to `.env` for live models.
+
+---
+
 ## Problem
 
 RAG is the most-deployed pattern in production AI — and the easiest to do badly. Naive "embed +
