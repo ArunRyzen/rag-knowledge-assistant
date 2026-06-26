@@ -1,24 +1,32 @@
-"""FastAPI service.
+"""FastAPI service with production-serving concerns: semantic caching + rate limiting + metrics.
 
-One pipeline instance lives for the process lifetime (the in-memory store persists across
-requests). The bundled sample corpus is ingested on startup so `/ask` works immediately; `POST
-/ingest` adds more. The endpoints are thin — all logic is in the library.
+One pipeline lives for the process lifetime (the in-memory store persists across requests). `/ask`
+sits behind a per-client rate limiter and a semantic response cache, and `/metrics` exposes basic
+operational counters. The endpoints stay thin — all logic is in the library.
 """
 
 from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from rag_assistant.cache import SemanticCache
 from rag_assistant.config import load_settings
 from rag_assistant.evaluation import GoldenItem, compare_modes
-from rag_assistant.factory import build_pipeline
+from rag_assistant.factory import build_embedder, build_pipeline
 from rag_assistant.pipeline import RAGPipeline
+from rag_assistant.ratelimit import RateLimiter
 from rag_assistant.sample_data import GOLDEN, SAMPLE_DOCS
 
 app = FastAPI(title="rag-knowledge-assistant", version="0.1.0")
+
+# Serving controls. In production these would be Redis-backed and configurable.
+RATE_LIMIT_MAX = 60
+RATE_LIMIT_WINDOW_S = 60.0
+_limiter = RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_S)
+_metrics = {"ask_requests": 0}
 
 
 @lru_cache
@@ -27,6 +35,12 @@ def _pipeline() -> RAGPipeline:
     for doc_id, text in SAMPLE_DOCS.items():
         pipeline.ingest(doc_id, text)
     return pipeline
+
+
+@lru_cache
+def _cache() -> SemanticCache:
+    # Share the same embedder family the pipeline uses.
+    return SemanticCache(build_embedder(load_settings()))
 
 
 class IngestRequest(BaseModel):
@@ -52,16 +66,42 @@ def ingest(request: IngestRequest) -> dict[str, int]:
 
 
 @app.post("/ask")
-def ask(request: AskRequest) -> dict:
+def ask(request: AskRequest, http_request: Request) -> dict:
+    client = http_request.client.host if http_request.client else "unknown"
+    if not _limiter.allow(client):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again shortly.")
+
+    _metrics["ask_requests"] += 1
+    # Cache key folds in retrieval mode so different modes don't collide.
+    key = f"{request.mode}|{request.rerank}|{request.question}"
+    cached = _cache().get(key)
+    if cached is not None:
+        return {**cached, "cached": True}
+
     answer = _pipeline().ask(request.question, mode=request.mode, rerank=request.rerank)
-    return answer.model_dump()
+    payload = answer.model_dump()
+    _cache().put(key, payload)
+    return {**payload, "cached": False}
+
+
+@app.get("/metrics")
+def metrics() -> dict:
+    cache = _cache()
+    return {
+        "ask_requests": _metrics["ask_requests"],
+        "cache_hits": cache.stats.hits,
+        "cache_misses": cache.stats.misses,
+        "cache_hit_rate": round(cache.stats.hit_rate, 3),
+        "cache_size": cache.size,
+        "rate_limit": {"max": RATE_LIMIT_MAX, "window_seconds": RATE_LIMIT_WINDOW_S},
+    }
 
 
 @app.get("/eval")
 def evaluate(k: int = 5) -> list[dict]:
     dataset = [GoldenItem(**item) for item in GOLDEN]  # type: ignore[arg-type]
-    metrics = compare_modes(_pipeline().retriever, dataset, k=k)
+    metrics_list = compare_modes(_pipeline().retriever, dataset, k=k)
     return [
         {"mode": m.mode, "k": m.k, "recall_at_k": m.recall_at_k, "mrr": m.mrr, "n": m.n}
-        for m in metrics
+        for m in metrics_list
     ]

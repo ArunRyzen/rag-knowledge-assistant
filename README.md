@@ -132,12 +132,20 @@ uv run ruff check . && uv run mypy . && uv run pytest
 The suite runs the full pipeline offline — no keys, no database, no network — because every backend
 implements a swappable protocol. CI runs lint + type-check + tests on every push.
 
-## Deployment
+## Serving & deployment
+
+Production-serving features are built into the API (full guide:
+[`docs/deployment.md`](docs/deployment.md)):
+- **Semantic response cache** — paraphrased repeats skip retrieval + generation (`"cached": true`).
+- **Rate limiting** — per-client sliding window (HTTP 429 over the limit).
+- **`GET /metrics`** — request count, cache hit rate, cache size, rate-limit config.
 
 ```bash
 docker build -t rag-knowledge-assistant .
 docker run -p 8000:8000 --env-file .env rag-knowledge-assistant
 ```
+Cloud: a [`render.yaml`](render.yaml) blueprint + a CI-gated [deploy workflow](.github/workflows/deploy.yml)
+deploy the Docker service (no GPU needed). See [`docs/deployment.md`](docs/deployment.md).
 
 ## Future improvements
 - Postgres full-text (`tsvector`) for sparse retrieval in the pgvector path (BM25 is in-memory today).

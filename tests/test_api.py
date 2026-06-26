@@ -37,3 +37,19 @@ def test_eval_reports_all_modes() -> None:
 
 def test_ask_rejects_empty_question() -> None:
     assert client.post("/ask", json={"question": ""}).status_code == 422
+
+
+def test_repeated_question_is_served_from_cache() -> None:
+    q = {"question": "What stops runaway agent loops in this corpus?", "mode": "hybrid"}
+    first = client.post("/ask", json=q).json()
+    second = client.post("/ask", json=q).json()
+    assert first["cached"] is False
+    assert second["cached"] is True  # second identical query hits the semantic cache
+
+
+def test_metrics_endpoint_reports_counters() -> None:
+    client.post("/ask", json={"question": "What is RRF?", "mode": "hybrid"})
+    body = client.get("/metrics").json()
+    assert body["ask_requests"] >= 1
+    assert "cache_hit_rate" in body
+    assert body["rate_limit"]["max"] >= 1

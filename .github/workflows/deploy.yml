@@ -1,0 +1,27 @@
+name: Deploy
+
+# Triggers a Render deploy after CI passes on main. No-op unless the
+# RENDER_DEPLOY_HOOK_URL repository secret is configured — so the workflow is safe
+# to commit before any cloud account exists.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Trigger Render deploy
+        env:
+          HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL not set — skipping deploy."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK"
+          echo "Deploy triggered."
