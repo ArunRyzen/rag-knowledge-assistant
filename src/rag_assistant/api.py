@@ -22,15 +22,19 @@ from rag_assistant.sample_data import GOLDEN, SAMPLE_DOCS
 
 app = FastAPI(title="rag-knowledge-assistant", version="0.1.0")
 
-# Serving controls. In production these would be Redis-backed and configurable.
-RATE_LIMIT_MAX = 60
-RATE_LIMIT_WINDOW_S = 60.0
+# Serving controls — THE rate-limit knobs. Each client may make at most RATE_LIMIT_MAX
+# requests per RATE_LIMIT_WINDOW_S seconds; beyond that /ask returns HTTP 429. In production
+# these would be Redis-backed and configurable.
+RATE_LIMIT_MAX = 60  # requests allowed per window, per client
+RATE_LIMIT_WINDOW_S = 60.0  # window length in seconds
 _limiter = RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_S)
 _metrics = {"ask_requests": 0}
 
 
 @lru_cache
 def _pipeline() -> RAGPipeline:
+    # @lru_cache on a zero-argument function = "build once, reuse forever": every request
+    # shares one pipeline, so documents ingested via POST /ingest stay searchable.
     pipeline = build_pipeline(load_settings())
     for doc_id, text in SAMPLE_DOCS.items():
         pipeline.ingest(doc_id, text)
@@ -67,6 +71,8 @@ def ingest(request: IngestRequest) -> dict[str, int]:
 
 @app.post("/ask")
 def ask(request: AskRequest, http_request: Request) -> dict:
+    # Order matters: rate limit FIRST (cheapest check), then cache, then the expensive
+    # retrieve-and-generate path only when both let the request through.
     client = http_request.client.host if http_request.client else "unknown"
     if not _limiter.allow(client):
         raise HTTPException(status_code=429, detail="Rate limit exceeded. Try again shortly.")
@@ -76,6 +82,7 @@ def ask(request: AskRequest, http_request: Request) -> dict:
     key = f"{request.mode}|{request.rerank}|{request.question}"
     cached = _cache().get(key)
     if cached is not None:
+        # Semantic-cache hit: a similar-enough question was answered before — reuse it.
         return {**cached, "cached": True}
 
     answer = _pipeline().ask(request.question, mode=request.mode, rerank=request.rerank)

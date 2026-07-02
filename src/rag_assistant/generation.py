@@ -4,8 +4,8 @@ The generator's job is narrow and safety-critical: answer **only** from the supp
 cite them, or say it doesn't know. That instruction (plus passing numbered contexts) is what turns
 retrieval into a trustworthy, attributable answer instead of a confident hallucination.
 
-`FakeAnswerer` makes the pipeline testable with no model call; `LLMAnswerer` calls Anthropic or
-OpenAI for real synthesis.
+`FakeAnswerer` makes the pipeline testable with no model call; `LLMAnswerer` calls Gemini,
+Anthropic, or OpenAI for real synthesis.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from typing import Protocol
 from rag_assistant.errors import GenerationError
 from rag_assistant.models import Answer, Citation, RetrievedChunk
 
+# The system prompt every live provider gets. The "ONLY ... provided" and "say you don't know"
+# clauses are the anti-hallucination guardrails; the citation clause makes answers checkable.
 _SYSTEM = (
     "You are a precise question-answering assistant. Answer ONLY using the numbered context "
     "passages provided. If the answer is not in the context, say you don't know. Be concise and "
@@ -57,7 +59,11 @@ class FakeAnswerer:
 
 
 class LLMAnswerer:
-    """Real synthesis via Anthropic or OpenAI."""
+    """Real synthesis via Gemini, Anthropic, or OpenAI.
+
+    All three providers get the exact same system instruction and prompt — only the SDK call
+    differs — so answers stay grounded and cited no matter which key you have.
+    """
 
     def __init__(
         self,
@@ -73,6 +79,22 @@ class LLMAnswerer:
         self._api_key = api_key
 
     def _generate(self, system: str, prompt: str) -> str:
+        if self._provider == "gemini":
+            # Google's SDK: the system instruction and token cap ride along in a config object.
+            from google import genai
+            from google.genai import types
+
+            gclient = genai.Client(api_key=self._api_key)
+            response = gclient.models.generate_content(
+                model=self._model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    max_output_tokens=self._max_tokens,
+                    temperature=0,  # deterministic-ish: we want grounded answers, not creativity
+                ),
+            )
+            return response.text or ""
         if self._provider == "anthropic":
             from anthropic import Anthropic
 

@@ -34,7 +34,13 @@ SAMPLE_DOCS: dict[str, str] = {
     ),
 }
 
-# Golden questions: each is answered by exactly one document.
+# ── THE GOLDEN EVAL SET ──
+# This is the labelled dataset `rag eval` scores against. Format: one entry per test question,
+# with the id(s) of the document(s) that contain the answer:
+#     {"question": "<your question>", "relevant_doc_ids": ["<doc id>"]}
+# Doc ids are the keys of SAMPLE_DOCS above (or, with `--data ./folder`, the filename without
+# extension — e.g. notes.md → "notes"). To grow the eval set, just append more entries here.
+# Each bundled question is answered by exactly one document, so the labels are unambiguous.
 GOLDEN: list[dict[str, object]] = [
     {"question": "How do I store vector embeddings in Postgres?", "relevant_doc_ids": ["pgvector"]},
     {"question": "Which index makes vector search fast?", "relevant_doc_ids": ["pgvector"]},

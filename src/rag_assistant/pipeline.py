@@ -63,6 +63,8 @@ class RAGPipeline:
         if not chunks:
             return 0
         embeddings = self._embedder.embed([c.text for c in chunks])
+        # Every chunk is indexed TWICE — once as a vector (for meaning-based search) and once
+        # in BM25 (for exact-word search). That dual indexing is what makes hybrid possible.
         self._store.add(chunks, embeddings)
         self._bm25.add(chunks)
         return len(chunks)
