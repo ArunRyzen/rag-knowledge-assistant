@@ -33,7 +33,14 @@ class CacheStats:
 
 
 class SemanticCache:
-    """Caches answers keyed by query embedding; serves a hit when similarity ≥ threshold."""
+    """Caches answers keyed by query embedding; serves a hit when similarity ≥ threshold.
+
+    THE similarity-threshold knob lives right below (`threshold=0.97`). It answers "how similar
+    must a new question be to a cached one before we reuse the old answer?" on a 0–1 cosine
+    scale. Lower it (e.g. 0.85) and more paraphrases hit the cache — cheaper and faster, but
+    riskier: two questions can be worded alike yet mean different things. 0.97 is deliberately
+    conservative: serving a wrong cached answer is worse than paying for a fresh one.
+    """
 
     def __init__(self, embedder: Embedder, *, threshold: float = 0.97, max_size: int = 512) -> None:
         self._embedder = embedder
@@ -46,6 +53,8 @@ class SemanticCache:
         if not self._entries:
             self.stats.misses += 1
             return None
+        # Embed the incoming query and linearly scan for the most similar cached query.
+        # O(n) is fine at this size; Redis + a vector index does the same job at scale.
         embedding = self._embedder.embed([query])[0]
         best_answer: dict | None = None
         best_sim = -1.0
@@ -53,6 +62,7 @@ class SemanticCache:
             sim = _cosine(embedding, cached_embedding)
             if sim > best_sim:
                 best_sim, best_answer = sim, answer
+        # Only serve the cached answer if the best match clears the similarity threshold.
         if best_answer is not None and best_sim >= self._threshold:
             self.stats.hits += 1
             return best_answer

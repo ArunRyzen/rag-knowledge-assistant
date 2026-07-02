@@ -1,14 +1,15 @@
 """Composition root: build a fully wired `RAGPipeline` from `Settings`.
 
 All the "which implementation?" decisions live here, so the CLI and API just ask for a pipeline.
-Sensible fallbacks keep the tool runnable with zero configuration: no embeddings key → the offline
-hashing embedder; no generation key → the fake answerer.
+Provider preference: a GEMINI_API_KEY switches BOTH embeddings and answers to Gemini (one key,
+whole live path). Sensible fallbacks keep the tool runnable with zero configuration: no embeddings
+key → the offline hashing embedder; no generation key → the fake answerer.
 """
 
 from __future__ import annotations
 
 from rag_assistant.config import Settings
-from rag_assistant.embeddings import Embedder, HashingEmbedder, OpenAIEmbedder
+from rag_assistant.embeddings import Embedder, GeminiEmbedder, HashingEmbedder, OpenAIEmbedder
 from rag_assistant.errors import ConfigError
 from rag_assistant.generation import Answerer, FakeAnswerer, LLMAnswerer
 from rag_assistant.pipeline import RAGPipeline
@@ -17,6 +18,13 @@ from rag_assistant.vectorstore import InMemoryVectorStore, PgVectorStore, Vector
 
 
 def build_embedder(settings: Settings) -> Embedder:
+    # Gemini first: it's the one key most learners have, and it covers embeddings too.
+    if settings.gemini_api_key:
+        return GeminiEmbedder(
+            model=settings.gemini_embedding_model,
+            dim=settings.gemini_embedding_dim,
+            api_key=settings.gemini_api_key,
+        )
     if settings.openai_api_key:
         return OpenAIEmbedder(
             model=settings.embedding_model,
@@ -27,18 +35,34 @@ def build_embedder(settings: Settings) -> Embedder:
     return HashingEmbedder(dim=256)
 
 
+def _embedding_dim(settings: Settings) -> int:
+    """The vector width the store must match — depends on which embedder will be built."""
+    if settings.gemini_api_key:
+        return settings.gemini_embedding_dim
+    if settings.openai_api_key:
+        return settings.embedding_dim
+    return 256  # HashingEmbedder default
+
+
 def build_vector_store(settings: Settings) -> VectorStore:
     if settings.vector_store == "memory":
         return InMemoryVectorStore()
     if settings.vector_store == "pgvector":
         if not settings.database_url:
             raise ConfigError("DATABASE_URL is required when VECTOR_STORE=pgvector.")
-        dim = settings.embedding_dim if settings.openai_api_key else 256
-        return PgVectorStore(database_url=settings.database_url, dim=dim)
+        return PgVectorStore(database_url=settings.database_url, dim=_embedding_dim(settings))
     raise ConfigError(f"Unknown VECTOR_STORE '{settings.vector_store}' (memory|pgvector).")
 
 
 def build_answerer(settings: Settings) -> Answerer:
+    # "gemini" is the default provider, so setting GEMINI_API_KEY is all it takes to go live.
+    if settings.generation_provider == "gemini" and settings.gemini_api_key:
+        return LLMAnswerer(
+            provider="gemini",
+            model=settings.gemini_model,
+            max_tokens=settings.max_tokens,
+            api_key=settings.gemini_api_key,
+        )
     if settings.generation_provider == "anthropic" and settings.anthropic_api_key:
         return LLMAnswerer(
             provider="anthropic",

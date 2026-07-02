@@ -19,7 +19,11 @@ from rag_assistant.retrieval import Retriever
 
 
 class GoldenItem(BaseModel):
-    """One labelled query: the question and the doc id(s) that actually answer it."""
+    """One labelled query: the question and the doc id(s) that actually answer it.
+
+    The bundled golden set lives in `sample_data.py` (the `GOLDEN` list) — that's the file to
+    edit when you add your own questions.
+    """
 
     question: str
     relevant_doc_ids: list[str]
@@ -58,11 +62,14 @@ def evaluate_retrieval(
     for item in dataset:
         results = retriever.retrieve(item.question, mode=mode, k=k, rerank=rerank)
         relevant = set(item.relevant_doc_ids)
+        # Find the position (1 = best) of the first result from a relevant document.
         first_rank = next(
             (i for i, r in enumerate(results, start=1) if r.chunk.doc_id in relevant), None
         )
         if first_rank is not None:
-            hits += 1
+            hits += 1  # counts toward recall@k: a relevant doc appeared somewhere in the top-k
+            # MRR rewards ranking it HIGH, not just retrieving it: 1st place is worth 1.0,
+            # 2nd is 0.5, 3rd is 0.33... so MRR tells you whether the good stuff is on top.
             reciprocal_ranks += 1.0 / first_rank
 
     n = len(dataset)

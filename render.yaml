@@ -13,6 +13,8 @@ services:
     envVars:
       - key: VECTOR_STORE
         value: memory          # use pgvector + DATABASE_URL for a persistent deployment
-      # Set these as secrets in the Render dashboard for live embeddings / generation:
+      # Set these as secrets in the Render dashboard for live embeddings / generation
+      # (GEMINI_API_KEY alone covers both):
+      # - key: GEMINI_API_KEY
       # - key: OPENAI_API_KEY
       # - key: ANTHROPIC_API_KEY

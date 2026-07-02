@@ -40,6 +40,8 @@ class CrossEncoderReranker:
     def rerank(self, query: str, candidates: list[RetrievedChunk], k: int) -> list[RetrievedChunk]:
         if not candidates:
             return []
+        # The key difference from retrieval: the model reads the query AND the chunk together
+        # (one pair per candidate), instead of comparing two separately computed vectors.
         pairs = [(query, c.chunk.text) for c in candidates]
         scores = self._model.predict(pairs)
         reranked = sorted(zip(candidates, scores, strict=True), key=lambda pair: -float(pair[1]))

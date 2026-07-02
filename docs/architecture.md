@@ -40,8 +40,9 @@ is in-memory in both paths; a full pgvector deployment would move sparse retriev
 
 ### 4. Offline-by-default embedder and answerer
 No keys? A deterministic **hashing embedder** (real lexical similarity) and a **fake answerer** keep
-the entire pipeline — chunking, retrieval, fusion, evaluation — runnable and testable. Add keys for
-semantic embeddings (OpenAI) and real synthesis (Anthropic/OpenAI). This is the same provider-pattern
+the entire pipeline — chunking, retrieval, fusion, evaluation — runnable and testable. Add a single
+`GEMINI_API_KEY` for semantic embeddings **and** real synthesis (OpenAI embeddings and
+Anthropic/OpenAI synthesis are also supported). This is the same provider-pattern
 as the `structured-extractor` project, applied to four seams.
 
 ### 5. Grounded, cited generation

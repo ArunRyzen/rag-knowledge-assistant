@@ -18,8 +18,9 @@ from collections import Counter
 from rag_assistant.models import Chunk, RetrievedChunk
 
 _TOKEN = re.compile(r"[a-z0-9]+")
-_K1 = 1.5  # term-frequency saturation
-_B = 0.75  # length normalization
+# The two classic BM25 tuning constants (these exact defaults are used almost everywhere):
+_K1 = 1.5  # term-frequency saturation — how quickly repeated words stop adding score
+_B = 0.75  # length normalization — how much long documents are penalized
 
 
 def _tokenize(text: str) -> list[str]:
@@ -46,6 +47,8 @@ class BM25Index:
         self._avgdl = sum(lengths) / len(lengths) if lengths else 0.0
 
     def _idf(self, term: str) -> float:
+        # IDF = "inverse document frequency": a word appearing in few chunks (like a product
+        # code) is a strong signal; a word appearing everywhere (like "the") is worth ~nothing.
         n = len(self._chunks)
         df = self._doc_freq.get(term, 0)
         # BM25 idf with +1 smoothing to keep it non-negative.
@@ -56,6 +59,8 @@ class BM25Index:
             return []
         q_terms = _tokenize(query)
         scores: list[float] = []
+        # Score every chunk against the query. Fine at this scale; real search engines use an
+        # inverted index to only touch chunks that share at least one term.
         for toks in self._tokens:
             tf = Counter(toks)
             dl = len(toks)
@@ -64,6 +69,8 @@ class BM25Index:
                 if term not in tf:
                     continue
                 freq = tf[term]
+                # The BM25 formula: rare terms count more (idf), repeated terms give
+                # diminishing returns (K1), and long chunks are gently penalized (B).
                 denom = freq + _K1 * (1 - _B + _B * dl / (self._avgdl or 1))
                 score += self._idf(term) * (freq * (_K1 + 1)) / denom
             scores.append(score)

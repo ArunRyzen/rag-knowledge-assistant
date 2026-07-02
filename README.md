@@ -14,11 +14,11 @@ recall@k / MRR evaluation. Runs zero-infra in memory, or on Postgres + pgvector.
 ## ⚡ Quick Start
 
 ```bash
-git clone https://github.com/Arunops700/rag-knowledge-assistant.git && cd rag-knowledge-assistant
+git clone https://github.com/ArunRyzen/rag-knowledge-assistant.git && cd rag-knowledge-assistant
 uv sync --extra dev          # installs everything — no API keys needed
 uv run rag eval              # compare dense vs sparse vs hybrid retrieval
 ```
-*Runs fully offline.* Add `OPENAI_API_KEY` (embeddings) / `ANTHROPIC_API_KEY` (answers) to `.env` for live models.
+*Runs fully offline.* Add a single `GEMINI_API_KEY` to `.env` for live semantic embeddings **and** real answers — see [Live mode](#live-mode-one-gemini-key).
 
 ---
 
@@ -69,22 +69,46 @@ backends swap freely and the whole thing is testable offline. Full reasoning in
 
 ## Tech stack
 
-`Python 3.12` · `Pydantic v2` · `NumPy` · `OpenAI` (embeddings + generation) · `Anthropic`
-(generation) · `pgvector` / Postgres (optional) · `FastAPI` · `Typer` · `uv` · `ruff` · `mypy` ·
-`pytest` · `Docker` · `GitHub Actions`
+`Python 3.12` · `Pydantic v2` · `NumPy` · `Gemini` (embeddings + generation) · `OpenAI`
+(embeddings + generation) · `Anthropic` (generation) · `pgvector` / Postgres (optional) ·
+`FastAPI` · `Typer` · `uv` · `ruff` · `mypy` · `pytest` · `Docker` · `GitHub Actions`
 
 ## Setup
 
 ```bash
-git clone https://github.com/Arunops700/rag-knowledge-assistant.git
+git clone https://github.com/ArunRyzen/rag-knowledge-assistant.git
 cd rag-knowledge-assistant
 uv sync --extra dev
 cp .env.example .env     # optional — works with no keys using the offline embedder + fake answerer
 ```
 
 **Runs with zero configuration.** With no API keys it uses a deterministic hashing embedder and a
-fake answerer — enough to exercise chunking, hybrid retrieval, and the eval harness end to end. Add
-`OPENAI_API_KEY` for semantic embeddings and `ANTHROPIC_API_KEY` for real answer synthesis.
+fake answerer — enough to exercise chunking, hybrid retrieval, and the eval harness end to end.
+
+## Live mode (one Gemini key)
+
+The easiest way to go live is a **Gemini API key** — one free key covers both halves of the
+pipeline. Get one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then:
+
+```bash
+cp .env.example .env
+# in .env:
+GEMINI_API_KEY=your-key-here
+```
+
+That's it. With `GEMINI_API_KEY` set the factory automatically switches:
+
+| Stage | Offline default | With `GEMINI_API_KEY` |
+|---|---|---|
+| Embeddings | Hashing embedder (lexical) | `gemini-embedding-001` (semantic) |
+| Answers | Fake answerer (canned, cited) | `gemini-2.5-flash` (real, cited) |
+
+Models and embedding size are configurable via `GEMINI_MODEL`, `GEMINI_EMBEDDING_MODEL`, and
+`GEMINI_EMBEDDING_DIM` (768 by default; the model also supports 1536/3072).
+
+Alternative providers, if you have those keys instead: `OPENAI_API_KEY` enables OpenAI
+embeddings (and OpenAI answers with `GENERATION_PROVIDER=openai`); `ANTHROPIC_API_KEY` +
+`GENERATION_PROVIDER=anthropic` enables Anthropic answers.
 
 ## Usage
 
@@ -165,10 +189,12 @@ deploy the Docker service (no GPU needed). See [`docs/deployment.md`](docs/deplo
 - Streaming answers and PDF/OCR ingestion.
 
 ## Learn more
+- [`docs/code-walkthrough.md`](docs/code-walkthrough.md) — **new to RAG? start here** — a
+  plain-English, file-by-file tour with a "where to find X" cheat sheet for every tunable knob
 - [`docs/architecture.md`](docs/architecture.md) — design decisions & trade-offs
 - [`docs/interview-questions.md`](docs/interview-questions.md) — RAG Q&A this project answers
 - [`docs/lessons-learned.md`](docs/lessons-learned.md)
 
 ## License
 
-[MIT](LICENSE) · Part of my [AI_Engineer](https://github.com/Arunops700/AI_Engineer) portfolio (Milestone 2).
+[MIT](LICENSE) · Part of my [AI_Engineer](https://github.com/ArunRyzen/AI_Engineer) portfolio (Milestone 2).

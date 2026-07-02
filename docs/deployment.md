@@ -30,8 +30,8 @@ curl localhost:8000/health
 1. Push to GitHub (done).
 2. Create a Render account, **New → Blueprint**, point it at this repo. Render reads
    [`render.yaml`](../render.yaml) and builds the Docker web service.
-3. Set secrets in the dashboard (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) for live embeddings/answers;
-   the default offline embedder works with none.
+3. Set secrets in the dashboard (`GEMINI_API_KEY` covers live embeddings **and** answers;
+   `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` also work); the default offline embedder works with none.
 4. For persistence, add a Postgres instance, set `VECTOR_STORE=pgvector` + `DATABASE_URL`, and
    `uv sync --extra pgvector` in the image.
 
@@ -55,4 +55,4 @@ Fly.io / Railway are equivalent: they build the same `Dockerfile`; the start com
 - **Inference at scale** (conceptual) — self-hosted open models use **vLLM** (continuous batching +
   KV-cache) on GPUs; **Kubernetes** for orchestration. This service stays CPU/API-friendly by design.
 - **Observability** — wire request traces + eval gates from
-  [`llm-eval-kit`](https://github.com/Arunops700/llm-eval-kit) (Milestone 4).
+  [`llm-eval-kit`](https://github.com/ArunRyzen/llm-eval-kit) (Milestone 4).
