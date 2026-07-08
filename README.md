@@ -136,6 +136,17 @@ pipe.ingest("notes", open("notes.md").read())
 print(pipe.ask("...", mode="hybrid", rerank=True).text)
 ```
 
+## Peek behind the curtain (`LLM_DEBUG`)
+
+Curious what actually gets sent to (and comes back from) each model? Set `LLM_DEBUG=1` and every
+embedder and answerer call — **including the offline fakes, so no API key needed** — prints a
+plain request/response block to stderr (API keys are never logged):
+
+```powershell
+$env:LLM_DEBUG = "1"; uv run rag ask "Which index makes vector search fast?"
+Remove-Item Env:LLM_DEBUG   # turn it off again
+```
+
 ## How it works (the parts interviewers ask about)
 
 1. **Chunking** — recursive, structure-aware splitting with overlap, so a fact split across a

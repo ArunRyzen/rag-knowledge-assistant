@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from rag_assistant.debuglog import debug_enabled, log_block
 from rag_assistant.errors import GenerationError
 from rag_assistant.models import Answer, Citation, RetrievedChunk
 
@@ -41,6 +42,23 @@ def _citations(contexts: list[RetrievedChunk]) -> list[Citation]:
     ]
 
 
+def _log_answer_request(
+    label: str, system: str, question: str, contexts: list[RetrievedChunk]
+) -> None:
+    # Debug tracing (LLM_DEBUG=1): the exact system prompt, question, and context previews the
+    # answerer sees. API keys are never logged.
+    if not debug_enabled():
+        return
+    context = "\n".join(f"[{i}] {c.chunk.text[:200]}..." for i, c in enumerate(contexts, start=1))
+    log_block(f"AI REQUEST ({label})", system=system, user=question, context=context)
+
+
+def _log_answer_response(label: str, text: str) -> None:
+    if not debug_enabled():
+        return
+    log_block(f"AI RESPONSE ({label})", text=text)
+
+
 class Answerer(Protocol):
     def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer: ...
 
@@ -49,10 +67,14 @@ class FakeAnswerer:
     """Deterministic answerer for tests and offline demos — no network."""
 
     def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer:
+        _log_answer_request("offline fake answerer", _SYSTEM, question, contexts)
         if not contexts:
-            return Answer(question=question, text="I don't know — no relevant context found.")
+            text = "I don't know — no relevant context found."
+            _log_answer_response("offline fake answerer", text)
+            return Answer(question=question, text=text)
         top = contexts[0].chunk
         text = f"Based on {len(contexts)} passage(s), see doc '{top.doc_id}'. [1]"
+        _log_answer_response("offline fake answerer", text)
         return Answer(
             question=question, text=text, citations=_citations(contexts), contexts=contexts
         )
@@ -125,7 +147,10 @@ class LLMAnswerer:
     def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer:
         if not contexts:
             return Answer(question=question, text="I don't know — no relevant context found.")
+        label = f"{self._provider}/{self._model}"
+        _log_answer_request(label, _SYSTEM, question, contexts)
         text = self._generate(_SYSTEM, _build_prompt(question, contexts))
+        _log_answer_response(label, text)
         return Answer(
             question=question, text=text, citations=_citations(contexts), contexts=contexts
         )

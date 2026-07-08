@@ -23,6 +23,7 @@ The knobs you'll want to change for the exercises, and exactly where they live:
 | How many chunks the answer is based on | `src/rag_assistant/config.py` | `top_k` / `candidate_k` | 5 / 20 |
 | Which models are used (Gemini etc.) | `src/rag_assistant/config.py` + `.env` | `gemini_model`, `gemini_embedding_model` | gemini-2.5-flash / gemini-embedding-001 |
 | BM25 tuning constants | `src/rag_assistant/sparse.py` | `_K1 = 1.5`, `_B = 0.75` | classic defaults |
+| **See every AI request/response** (debug tracing) | `src/rag_assistant/debuglog.py` | `debug_enabled()` / `log_block(...)`; turn on with env var `LLM_DEBUG=1` | off |
 
 Anything in `config.py` can also be changed without touching code: set the upper-cased env var
 (e.g. `CHUNK_SIZE=400`) in your `.env` file. The cache threshold and rate limit are **not** in
@@ -124,6 +125,7 @@ production hardening (cache, rate limiter, metrics, eval harness).
 | 13 | `cache.py` + `ratelimit.py` | Production serving concerns |
 | 14 | `api.py` + `cli.py` + `corpus.py` | The two front doors |
 | 15 | `errors.py` | The exception family |
+| 16 | `debuglog.py` | `LLM_DEBUG=1` tracing of every AI request/response |
 
 ---
 
@@ -375,6 +377,13 @@ in-memory store starts empty every process). **`corpus.py`** loads `.md`/`.txt` 
 A tiny hierarchy (`RAGError` → `ConfigError`, `IngestionError`, `RetrievalError`,
 `GenerationError`) so callers can tell a bad config from a failed API call.
 
+## 16. `debuglog.py` — watch every AI call happen
+
+Set `LLM_DEBUG=1` and every embedder and answerer call prints an `=== AI REQUEST ===` /
+`=== AI RESPONSE ===` block to stderr — the exact system prompt, question, and context previews
+going in, and the answer (or vector count) coming out. The offline fakes are traced too, so you
+can study the whole request/response flow with no API key, and keys are never logged.
+
 ---
 
 ## Where the tests live
@@ -390,6 +399,7 @@ A tiny hierarchy (`RAGError` → `ConfigError`, `IngestionError`, `RetrievalErro
 | `tests/test_ratelimit.py` | window behavior |
 | `tests/test_api.py` | endpoints, 429s, cached flag |
 | `tests/test_gemini.py` | Gemini embedder/answerer with mocked clients (no network) |
+| `tests/test_debuglog.py` | `LLM_DEBUG` tracing: off by default, stderr blocks when set |
 
 Run everything (offline, no keys needed):
 
