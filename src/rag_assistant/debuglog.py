@@ -60,7 +60,7 @@ def debug_enabled() -> bool:
     except ImportError:
         return False
 
-    file_value = dotenv_values(".env").get("LLM_DEBUG")
+    file_value = dotenv_values(".env", encoding="utf-8-sig").get("LLM_DEBUG")
     if file_value is None:
         return False  # 3) Neither the env var nor the file mentions LLM_DEBUG.
     return _is_truthy(file_value)
