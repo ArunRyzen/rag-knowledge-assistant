@@ -383,6 +383,8 @@ Set `LLM_DEBUG=1` and every embedder and answerer call prints an `=== AI REQUEST
 `=== AI RESPONSE ===` block to stderr — the exact system prompt, question, and context previews
 going in, and the answer (or vector count) coming out. The offline fakes are traced too, so you
 can study the whole request/response flow with no API key, and keys are never logged.
+You can set `LLM_DEBUG=1` either as a real environment variable or as a line in the project's
+`.env` file — the environment variable takes precedence whenever it is set.
 
 ---
 
