@@ -18,11 +18,29 @@ import math
 import re
 from typing import TYPE_CHECKING, Protocol
 
+from rag_assistant.debuglog import debug_enabled, log_block
+
 if TYPE_CHECKING:
     from google import genai
     from openai import OpenAI
 
 _TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def _log_embed_request(label: str, model: str, texts: list[str]) -> None:
+    # Debug tracing (LLM_DEBUG=1): what we're about to embed — counts and short previews only,
+    # never raw vectors and never API keys.
+    if not debug_enabled():
+        return
+    previews = {f"text_{i}": t[:80] for i, t in enumerate(texts[:5], start=1)}
+    log_block(f"AI REQUEST ({label})", model=model, num_texts=len(texts), **previews)
+
+
+def _log_embed_response(label: str, vectors: list[list[float]]) -> None:
+    if not debug_enabled():
+        return
+    dim = len(vectors[0]) if vectors else 0
+    log_block(f"AI RESPONSE ({label})", vectors=len(vectors), dimensions=dim)
 
 
 class Embedder(Protocol):
@@ -60,7 +78,10 @@ class HashingEmbedder:
         return _l2_normalize(vec)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        return [self._embed_one(t) for t in texts]
+        _log_embed_request("offline fake embedder", f"hashing-{self.dim}d", texts)
+        vectors = [self._embed_one(t) for t in texts]
+        _log_embed_response("offline fake embedder", vectors)
+        return vectors
 
 
 class GeminiEmbedder:
@@ -82,13 +103,16 @@ class GeminiEmbedder:
     def embed(self, texts: list[str]) -> list[list[float]]:
         from google.genai import types
 
+        _log_embed_request(f"gemini/{self._model}", self._model, texts)
         response = self._client.models.embed_content(
             model=self._model,
             contents=texts,  # type: ignore[arg-type]  # SDK accepts a list of strings
             config=types.EmbedContentConfig(output_dimensionality=self.dim),
         )
         # Results come back in input order; normalize so cosine similarity behaves.
-        return [_l2_normalize(list(item.values or [])) for item in response.embeddings or []]
+        vectors = [_l2_normalize(list(item.values or [])) for item in response.embeddings or []]
+        _log_embed_response(f"gemini/{self._model}", vectors)
+        return vectors
 
 
 class OpenAIEmbedder:
@@ -102,6 +126,9 @@ class OpenAIEmbedder:
         self.dim = dim
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        _log_embed_request(f"openai/{self._model}", self._model, texts)
         response = self._client.embeddings.create(model=self._model, input=texts)
         # Results come back in input order; preserve it.
-        return [item.embedding for item in response.data]
+        vectors = [item.embedding for item in response.data]
+        _log_embed_response(f"openai/{self._model}", vectors)
+        return vectors
