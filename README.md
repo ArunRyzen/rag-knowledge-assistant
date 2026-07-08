@@ -140,12 +140,21 @@ print(pipe.ask("...", mode="hybrid", rerank=True).text)
 
 Curious what actually gets sent to (and comes back from) each model? Set `LLM_DEBUG=1` and every
 embedder and answerer call — **including the offline fakes, so no API key needed** — prints a
-plain request/response block to stderr (API keys are never logged):
+plain request/response block to stderr (API keys are never logged). Two ways to turn it on:
 
 ```powershell
+# 1) Per-session environment variable:
 $env:LLM_DEBUG = "1"; uv run rag ask "Which index makes vector search fast?"
 Remove-Item Env:LLM_DEBUG   # turn it off again
 ```
+
+```ini
+# 2) Or persistently, via a line in your project's .env file:
+LLM_DEBUG=1
+```
+
+If both are present, the environment variable wins — handy for a one-off
+`$env:LLM_DEBUG = "0"` override without editing `.env`.
 
 ## How it works (the parts interviewers ask about)
 
