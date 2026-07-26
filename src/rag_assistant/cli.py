@@ -56,9 +56,7 @@ def _prepare(data: Path | None) -> RAGPipeline:
 
 @app.command()
 def ingest(
-    data: Annotated[
-        Path | None, typer.Option(help="Folder/file of docs (.md/.txt/.pdf).")
-    ] = None,
+    data: Annotated[Path | None, typer.Option(help="Folder/file of docs (.md/.txt/.pdf).")] = None,
     reset: Annotated[
         bool, typer.Option(help="Wipe the vector store first (use when the corpus CHANGED).")
     ] = False,

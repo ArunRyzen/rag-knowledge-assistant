@@ -79,9 +79,7 @@ def build_chat(settings: Settings, pipeline: RAGPipeline) -> GuardedChat:
 
 
 def _web_agent(question: str, *, model: str, max_tokens: int, api_key: str) -> str:
-    return web_search_answer(
-        model=model, max_tokens=max_tokens, api_key=api_key, question=question
-    )
+    return web_search_answer(model=model, max_tokens=max_tokens, api_key=api_key, question=question)
 
 
 def _agent_llm(system: str, prompt: str, *, model: str, api_key: str) -> str:
