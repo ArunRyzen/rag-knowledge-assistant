@@ -24,3 +24,23 @@ Notes to my future self from building this (Milestone 2).
 ## If I did it again
 - Add faithfulness/answer evals from the start (Milestone 4 will retrofit them here).
 - Move sparse retrieval into Postgres for the production path so hybrid is fully persistent.
+
+---
+
+## Update (July 2026): the real-stack refactor
+
+The project moved from "offline-first with optional live mode" to **one real path**: Gemini
+(required) + Pinecone (persistent vectors), with pgvector and the OpenAI/Anthropic branches
+removed. What I learned in the process:
+
+- **The offline fakes did their job, then became test doubles.** They bootstrapped TDD when the
+  project had no keys; once real keys existed, keeping them in the production factory meant a
+  typo'd key silently degraded to fake answers. Moving them to `tests/conftest.py` kept the free
+  offline test suite AND made production failures loud. Fakes belong at the seams, not in the
+  factory.
+- **A persistent store splits the pipeline into write path and read path.** With everything
+  in-memory, ingest-per-run hid the distinction; Pinecone forced an explicit `rag ingest` (chunk →
+  embed → upsert, idempotent by chunk id) separate from query-time — which is how production RAG
+  actually works, eventual consistency and all.
+- **Protocols proved their worth again**: swapping pgvector for Pinecone touched one class, one
+  factory branch, and zero retrieval logic.

@@ -16,7 +16,6 @@ class Chunk(BaseModel):
     doc_id: str = Field(description="Id of the source document.")
     text: str = Field(description="The chunk's text content.")
     index: int = Field(description="Position of this chunk within its document.")
-    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class RetrievedChunk(BaseModel):

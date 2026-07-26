@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 from rag_assistant.evaluation import GoldenItem, compare_modes, evaluate_retrieval
-from rag_assistant.sample_data import GOLDEN
-from tests.conftest import make_pipeline
+from tests.conftest import TEST_GOLDEN, make_pipeline
 
 
 def _dataset() -> list[GoldenItem]:
-    return [GoldenItem(**item) for item in GOLDEN]  # type: ignore[arg-type]
+    return [GoldenItem(**item) for item in TEST_GOLDEN]  # type: ignore[arg-type]
 
 
 def test_metrics_are_bounded_and_populated() -> None:
     pipeline = make_pipeline()
     m = evaluate_retrieval(pipeline.retriever, _dataset(), mode="hybrid", k=5)
-    assert m.n == len(GOLDEN)
+    assert m.n == len(TEST_GOLDEN)
     assert 0.0 <= m.recall_at_k <= 1.0
     assert 0.0 <= m.mrr <= 1.0
     # The sample corpus is easy and unambiguous — hybrid should find most answers.

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from rag_assistant.embeddings import HashingEmbedder
-from rag_assistant.generation import FakeAnswerer
 from rag_assistant.pipeline import RAGPipeline
 from rag_assistant.vectorstore import InMemoryVectorStore
-from tests.conftest import make_pipeline
+from tests.conftest import StubAnswerer, StubEmbedder, make_pipeline
 
 
 def test_ask_returns_answer_with_contexts() -> None:
@@ -21,9 +19,9 @@ def test_ask_returns_answer_with_contexts() -> None:
 
 def test_empty_index_answers_dont_know() -> None:
     pipeline = RAGPipeline(
-        embedder=HashingEmbedder(dim=64),
+        embedder=StubEmbedder(dim=64),
         vector_store=InMemoryVectorStore(),
-        answerer=FakeAnswerer(),
+        answerer=StubAnswerer(),
     )
     answer = pipeline.ask("anything?")
     assert "don't know" in answer.text.lower()
@@ -31,9 +29,9 @@ def test_empty_index_answers_dont_know() -> None:
 
 def test_ingest_counts_chunks() -> None:
     pipeline = RAGPipeline(
-        embedder=HashingEmbedder(dim=64),
+        embedder=StubEmbedder(dim=64),
         vector_store=InMemoryVectorStore(),
-        answerer=FakeAnswerer(),
+        answerer=StubAnswerer(),
         chunk_size=100,
         chunk_overlap=20,
     )

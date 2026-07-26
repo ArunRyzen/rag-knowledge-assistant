@@ -1,4 +1,4 @@
-"""Domain exceptions, so callers can distinguish config/ingest/retrieval/generation failures."""
+"""Domain exceptions, so callers can distinguish config failures from ingestion failures."""
 
 from __future__ import annotations
 
@@ -8,16 +8,8 @@ class RAGError(Exception):
 
 
 class ConfigError(RAGError):
-    """Missing or invalid configuration (e.g. no embeddings API key)."""
+    """Missing or invalid configuration (e.g. no API key, wrong vector store name)."""
 
 
 class IngestionError(RAGError):
-    """A document could not be loaded, chunked, or embedded."""
-
-
-class RetrievalError(RAGError):
-    """Retrieval failed (store unavailable, dimension mismatch, etc.)."""
-
-
-class GenerationError(RAGError):
-    """The answer-generation step failed."""
+    """A document could not be loaded or extracted."""

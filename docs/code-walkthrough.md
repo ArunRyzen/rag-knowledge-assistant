@@ -16,7 +16,8 @@ The knobs you'll want to change for the exercises, and exactly where they live:
 |---|---|---|---|
 | **Chunk size** (how big each text piece is) | `src/rag_assistant/config.py` | `chunk_size: int = Field(default=800)` | 800 characters |
 | Chunk overlap | `src/rag_assistant/config.py` | `chunk_overlap: int = Field(default=120)` | 120 characters |
-| **Golden eval set** (the questions `rag eval` scores) | `src/rag_assistant/sample_data.py` | the `GOLDEN` list | 5 questions |
+| **Golden eval set** (the questions `rag eval` scores) | `src/rag_assistant/golden.py` | the `GOLDEN` list | 16 questions |
+| **The corpus itself** (the documents that get ingested) | `data/*.md` | any `.md`/`.txt` file — doc id = filename stem | 8 RAG study docs |
 | **Hybrid fusion / RRF** (how dense + sparse results merge) | `src/rag_assistant/retrieval.py` | `reciprocal_rank_fusion(...)`; the `rrf_k` constant is `rrf_k: int = Field(default=60)` in `config.py` | rrf_k = 60 |
 | **Semantic-cache similarity threshold** | `src/rag_assistant/cache.py` | `threshold: float = 0.97` in `SemanticCache.__init__` | 0.97 |
 | **Rate limit** (requests per window) | `src/rag_assistant/api.py` | `RATE_LIMIT_MAX = 60` and `RATE_LIMIT_WINDOW_S = 60.0` (top of file) | 60 requests / 60 s |
@@ -43,19 +44,20 @@ context. Quadruple it (3200) → whole documents in one chunk: nothing gets frag
 hit drags in lots of irrelevant text. Run `uv run rag eval` after each change and watch
 recall@5 / MRR move.
 
-**Golden eval set** — `src/rag_assistant/sample_data.py`, the `GOLDEN` list. One dict per test
+**Golden eval set** — `src/rag_assistant/golden.py`, the `GOLDEN` list. One dict per test
 question; `relevant_doc_ids` names the document(s) that contain the answer:
 
 ```python
 GOLDEN: list[dict[str, object]] = [
-    {"question": "How do I store vector embeddings in Postgres?", "relevant_doc_ids": ["pgvector"]},
+    {"question": "How does the HNSW algorithm make nearest-neighbour search fast?",
+     "relevant_doc_ids": ["vector-databases"]},
     ...
 ]
 ```
 
-Doc ids are the keys of `SAMPLE_DOCS` in the same file (or the filename without extension when
-you ingest your own folder with `--data`: `notes.md` → `"notes"`). To add your own 10 questions,
-append 10 more dicts in exactly this shape.
+Doc ids are filenames in `data/` without the extension (`chunking.md` → `"chunking"`; same rule
+for your own folder via `--data`). To add your own questions, append more dicts in exactly this
+shape — that's Task 3 in `tasks/README.md`.
 
 **RRF / hybrid fusion** — `src/rag_assistant/retrieval.py`, function `reciprocal_rank_fusion`
 (explained line by line below). The constant it uses comes from `rrf_k` in `config.py`
@@ -113,15 +115,15 @@ production hardening (cache, rate limiter, metrics, eval harness).
 | 1 | `models.py` | The 4 data shapes everything passes around |
 | 2 | `config.py` | Every knob, and how `.env` feeds it |
 | 3 | `chunking.py` | How documents become chunks |
-| 4 | `embeddings.py` | How text becomes vectors (offline, Gemini, OpenAI) |
-| 5 | `vectorstore.py` | Where vectors live; cosine search |
+| 4 | `embeddings.py` | How text becomes vectors (Gemini) |
+| 5 | `vectorstore.py` | Where vectors live: in-memory cosine search, or Pinecone |
 | 6 | `sparse.py` | BM25 — exact-word search |
 | 7 | `retrieval.py` | Hybrid search + RRF fusion (the heart) |
 | 8 | `rerank.py` | The optional precision stage |
 | 9 | `generation.py` | Turning chunks into a cited answer |
 | 10 | `pipeline.py` | Gluing 3–9 together |
 | 11 | `factory.py` | How keys in `.env` pick the implementations |
-| 12 | `sample_data.py` + `evaluation.py` | The golden set and recall@k / MRR |
+| 12 | `golden.py` + `evaluation.py` | The golden set and recall@k / MRR |
 | 13 | `cache.py` + `ratelimit.py` | Production serving concerns |
 | 14 | `api.py` + `cli.py` + `corpus.py` | The two front doors |
 | 15 | `errors.py` | The exception family |
@@ -133,7 +135,7 @@ production hardening (cache, rate limiter, metrics, eval harness).
 
 Four tiny Pydantic models; every other file talks in these terms:
 
-- **`Chunk`** — one piece of a document: `id` (like `"pgvector::0"`), `doc_id` (which document
+- **`Chunk`** — one piece of a document: `id` (like `"chunking::0"`), `doc_id` (which document
   it came from), `text`, and its `index` within the document. The `doc_id` is what lets an
   answer cite its source and what the eval harness checks against.
 - **`RetrievedChunk`** — a `Chunk` plus the `score` that ranked it and which retriever
@@ -154,9 +156,9 @@ One `Settings` class. Each field reads from an environment variable of the same 
 chunk_size: int = Field(default=800)   # ← env var CHUNK_SIZE beats this default
 ```
 
-Notable fields: `gemini_api_key` (set this and BOTH embeddings and answers go live via Gemini),
-`chunk_size` / `chunk_overlap`, `top_k` / `candidate_k`, `rrf_k`, `use_reranker`,
-`vector_store` (`memory` or `pgvector`).
+Notable fields: `gemini_api_key` (required — powers BOTH embeddings and answers),
+`pinecone_api_key` / `pinecone_index`, `chunk_size` / `chunk_overlap`, `top_k` / `candidate_k`,
+`rrf_k`, `use_reranker`, `vector_store` (`memory` or `pinecone`).
 
 *Why one class?* So there is exactly one place to answer "what can I tune?" — and tests can
 construct `Settings(...)` directly with whatever they need.
@@ -191,28 +193,31 @@ whole in at least one chunk — otherwise it would be unfindable.
 
 ## 4. `embeddings.py` — text → vectors
 
-Three implementations of one 2-method interface (`Embedder`: a `dim` and an
+One live implementation of a 2-method interface (`Embedder`: a `dim` and an
 `embed(texts) -> vectors`):
 
-- **`HashingEmbedder`** (the offline default). Hashes each word into one of `dim` buckets and
-  counts. Texts sharing words get similar vectors. Not semantic — "car" and "automobile" look
-  unrelated — but deterministic, free, and honest enough to exercise the whole pipeline.
-- **`GeminiEmbedder`** (the live path with `GEMINI_API_KEY`). Calls `gemini-embedding-001` via
-  the `google-genai` SDK, asking for `dim`-sized vectors (`output_dimensionality`), and
-  L2-normalizes them because Gemini only pre-normalizes at the full 3072 dimensions:
+**`GeminiEmbedder`** calls `gemini-embedding-001` via the `google-genai` SDK, asking for
+`dim`-sized vectors (`output_dimensionality`), and L2-normalizes them because Gemini only
+pre-normalizes at the full 3072 dimensions:
 
-  ```python
-  response = self._client.models.embed_content(
-      model=self._model,            # "gemini-embedding-001"
-      contents=texts,               # a whole batch in one API call
-      config=types.EmbedContentConfig(output_dimensionality=self.dim),
-  )
-  return [_l2_normalize(list(item.values or [])) for item in response.embeddings or []]
-  ```
-- **`OpenAIEmbedder`** — same idea via OpenAI, if that's the key you have.
+```python
+response = self._client.models.embed_content(
+    model=self._model,            # "gemini-embedding-001"
+    contents=texts,               # a whole batch in one API call
+    config=types.EmbedContentConfig(output_dimensionality=self.dim),
+)
+return [_l2_normalize(list(item.values or [])) for item in response.embeddings or []]
+```
+
+Inputs are batched 100 at a time (`_BATCH_SIZE`) because the API caps how many texts one call
+may carry.
 
 *Why normalize to length 1?* Then "similarity" is just a dot product (cosine similarity), which
 is what the vector store computes.
+
+*Why a protocol if there's one implementation?* Tests inject `StubEmbedder` (in
+`tests/conftest.py`) — a deterministic hash-words-into-buckets embedder — so the whole pipeline
+runs offline. Adding another provider later is one new class; nothing downstream changes.
 
 ## 5. `vectorstore.py` — where vectors live
 
@@ -220,9 +225,13 @@ is what the vector store computes.
 query vector against the matrix (that IS cosine similarity, since everything is normalized),
 then take the k largest scores. Fine up to a few hundred thousand chunks.
 
-`PgVectorStore` is the production twin: Postgres + the pgvector extension, using the `<=>`
-cosine-distance operator. Both satisfy the same `VectorStore` protocol, so nothing downstream
-knows or cares which one is running.
+`PineconeVectorStore` is the persistent twin: a managed serverless vector database. Each chunk
+becomes one Pinecone *record* — the embedding as the vector, plus the chunk's text and
+provenance in metadata, so search results rebuild into `Chunk`s with no second datastore.
+Records are upserted by chunk id (re-ingesting overwrites, never duplicates), the index is
+created automatically if missing, and a dimension mismatch (index vs embedder) fails loudly at
+startup. Both stores satisfy the same `VectorStore` protocol, so nothing downstream knows or
+cares which one is running.
 
 ## 6. `sparse.py` — BM25, the exact-word search
 
@@ -274,11 +283,10 @@ The system prompt is the safety mechanism — read `_SYSTEM` in the file: answer
 numbered passages, say "I don't know" otherwise, cite passage numbers. The contexts are
 numbered `[1] (doc: ...) text...` so the model's citations map back to real chunks.
 
-`FakeAnswerer` returns a canned-but-grounded answer with real citations (that's what all the
-offline tests use). `LLMAnswerer` does the real call — for Gemini:
+`GeminiAnswerer` makes the call (tests use `StubAnswerer` from `tests/conftest.py` instead):
 
 ```python
-response = gclient.models.generate_content(
+response = client.models.generate_content(
     model=self._model,                       # "gemini-2.5-flash"
     contents=prompt,                         # numbered contexts + the question
     config=types.GenerateContentConfig(
@@ -289,8 +297,9 @@ response = gclient.models.generate_content(
 )
 ```
 
-with equivalent branches for Anthropic and OpenAI. All providers get an identical prompt, so
-switching keys never changes the grounding behavior.
+One honesty detail: `extract_citations` parses the `[n]` markers out of the model's answer, so
+`Answer.citations` lists the passages the model *actually cited* — not merely everything
+retrieval handed it. Out-of-range markers (a hallucinated `[9]`) are dropped.
 
 ## 10. `pipeline.py` — the glue
 
@@ -307,17 +316,18 @@ implementation — which is exactly why the test suite can run the *entire* pipe
 
 `build_embedder` / `build_answerer` / `build_vector_store` inspect `Settings` and choose:
 
-- `GEMINI_API_KEY` set → `GeminiEmbedder` + Gemini `LLMAnswerer` (one key, whole live path).
-- Only `OPENAI_API_KEY` → OpenAI embeddings (and OpenAI answers if `GENERATION_PROVIDER=openai`).
-- No keys → `HashingEmbedder` + `FakeAnswerer`: everything still runs, offline, for free.
+- Embeddings + answers: Gemini, always. A missing `GEMINI_API_KEY` raises a `ConfigError` that
+  tells you exactly what to add to `.env` — no silent degraded mode.
+- Vector store: `memory` or `pinecone` (which requires `PINECONE_API_KEY`, same loud failure).
 
 *Why a factory?* All "which implementation?" if-statements live in this one file; the CLI and
 API just say "give me a pipeline".
 
-## 12. `sample_data.py` + `evaluation.py` — proving it works
+## 12. `golden.py` + `evaluation.py` — proving it works
 
-`sample_data.py` bundles 4 tiny documents (`SAMPLE_DOCS`) and **the golden eval set**
-(`GOLDEN`) — see the cheat-sheet section above for the exact format and how to add questions.
+The corpus lives in `data/` (8 markdown documents about RAG itself); `golden.py` holds **the
+golden eval set** (`GOLDEN`) — 16 labelled questions keyed to those docs. See the cheat-sheet
+section above for the exact format and how to add questions.
 
 `evaluation.py` turns retrieval quality into numbers. For each golden question it retrieves
 top-k and checks where the first chunk from a relevant document landed:
@@ -368,9 +378,13 @@ answer = _pipeline().ask(...)         # 3. full retrieve + generate (the expensi
 `GET /metrics` exposes request counts, cache hit-rate/size, and the rate-limit config — enough
 to watch your cache-threshold experiments work.
 
-**`cli.py`** (Typer): `rag ask "..."` and `rag eval`, each ingesting the corpus first (the
-in-memory store starts empty every process). **`corpus.py`** loads `.md`/`.txt` files from a
-`--data` folder (doc id = filename without extension) or falls back to the bundled samples.
+**`cli.py`** (Typer): `rag ingest` is the write path — chunk, embed, upsert into the vector
+store; run it once (and after document changes). `rag ask "..."` and `rag eval` are the read
+path: with Pinecone they rebuild only the in-memory BM25 side (no embedding calls — the dense
+vectors already persist); with the memory store they ingest fully each run. **`corpus.py`**
+loads `.md`/`.txt`/`.pdf` files (doc id = filename without extension) from the `data/` folder by
+default, or any folder you pass with `--data`. PDFs go through `pypdf` text extraction first —
+the only format-specific code in the project; everything downstream sees plain text.
 
 ## 15. `errors.py` — the exception family
 
@@ -381,8 +395,8 @@ A tiny hierarchy (`RAGError` → `ConfigError`, `IngestionError`, `RetrievalErro
 
 Set `LLM_DEBUG=1` and every embedder and answerer call prints an `=== AI REQUEST ===` /
 `=== AI RESPONSE ===` block to stderr — the exact system prompt, question, and context previews
-going in, and the answer (or vector count) coming out. The offline fakes are traced too, so you
-can study the whole request/response flow with no API key, and keys are never logged.
+going in, and the answer (or vector count) coming out. Keys are never logged. The test stubs
+are traced with the same helpers, which is how the tracing itself gets tested offline.
 You can set `LLM_DEBUG=1` either as a real environment variable or as a line in the project's
 `.env` file — the environment variable takes precedence whenever it is set.
 

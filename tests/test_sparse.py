@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from rag_assistant.chunking import chunk_document
-from rag_assistant.sample_data import SAMPLE_DOCS
 from rag_assistant.sparse import BM25Index
+from tests.conftest import TEST_DOCS
 
 
 def _index() -> BM25Index:
     bm25 = BM25Index()
-    for doc_id, text in SAMPLE_DOCS.items():
+    for doc_id, text in TEST_DOCS.items():
         bm25.add(chunk_document(doc_id=doc_id, text=text, size=400, overlap=60))
     return bm25
 

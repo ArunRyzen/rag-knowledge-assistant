@@ -14,11 +14,12 @@ from pydantic import BaseModel, Field
 
 from rag_assistant.cache import SemanticCache
 from rag_assistant.config import load_settings
+from rag_assistant.corpus import load_corpus
 from rag_assistant.evaluation import GoldenItem, compare_modes
 from rag_assistant.factory import build_embedder, build_pipeline
+from rag_assistant.golden import GOLDEN
 from rag_assistant.pipeline import RAGPipeline
 from rag_assistant.ratelimit import RateLimiter
-from rag_assistant.sample_data import GOLDEN, SAMPLE_DOCS
 
 app = FastAPI(title="rag-knowledge-assistant", version="0.1.0")
 
@@ -35,9 +36,14 @@ _metrics = {"ask_requests": 0}
 def _pipeline() -> RAGPipeline:
     # @lru_cache on a zero-argument function = "build once, reuse forever": every request
     # shares one pipeline, so documents ingested via POST /ingest stay searchable.
-    pipeline = build_pipeline(load_settings())
-    for doc_id, text in SAMPLE_DOCS.items():
-        pipeline.ingest(doc_id, text)
+    settings = load_settings()
+    pipeline = build_pipeline(settings)
+    # Same asymmetry as the CLI: with Pinecone the dense vectors already persist (run
+    # `rag ingest` once), so startup only rebuilds the in-memory BM25 side — no embedding
+    # calls. With the memory store, ingest fully.
+    persistent = settings.vector_store == "pinecone"
+    for doc_id, text in load_corpus(None):
+        pipeline.ingest(doc_id, text, dense=not persistent)
     return pipeline
 
 

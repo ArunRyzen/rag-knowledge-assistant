@@ -1,19 +1,24 @@
 """Vector stores behind one interface.
 
-`InMemoryVectorStore` (numpy cosine) is the zero-infra default — perfect for development, tests,
-and small corpora. `PgVectorStore` is the production backend: Postgres + the pgvector extension,
-which keeps your vectors next to your relational data and scales with an HNSW index.
+`InMemoryVectorStore` (numpy cosine) lives entirely in-process: instant, free, but gone when the
+process exits. `PineconeVectorStore` is the persistent backend — a managed, serverless vector
+database: ingest once, query from any process afterwards.
 
 Both satisfy the same `VectorStore` protocol, so the retriever is oblivious to which one runs.
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+import time
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
+from rag_assistant.errors import ConfigError
 from rag_assistant.models import Chunk, RetrievedChunk
+
+if TYPE_CHECKING:
+    from pinecone import Pinecone
 
 
 class VectorStore(Protocol):
@@ -62,61 +67,80 @@ class InMemoryVectorStore:
         return len(self._chunks)
 
 
-class PgVectorStore:
-    """Postgres + pgvector backend. Requires the `pgvector` optional dependency and a database.
+class PineconeVectorStore:
+    """Pinecone serverless backend: a managed vector database in the cloud.
 
-    Schema is created on first use. Search uses cosine distance (`<=>`); for large corpora add an
-    HNSW index: `CREATE INDEX ON chunks USING hnsw (embedding vector_cosine_ops);`.
+    Each chunk becomes one Pinecone *record*: the embedding as the vector, plus the chunk's text
+    and provenance stored as metadata so search results can be reconstructed into `Chunk`s
+    without any second datastore. Records are upserted by chunk id, so re-ingesting the same
+    document overwrites cleanly instead of duplicating.
+
+    Two real-world constraints worth knowing (both great interview talking points):
+    - The index dimension is FIXED at creation and must match the embedder (768 for the default
+      Gemini setup). We check and fail loudly on mismatch.
+    - Upserts are eventually consistent — a record may take a few seconds to become searchable.
+      That's why ingestion is a separate, run-once `rag ingest` step.
     """
 
-    def __init__(self, *, database_url: str, dim: int) -> None:
-        import psycopg
-        from pgvector.psycopg import register_vector
+    _UPSERT_BATCH = 100
 
-        self._conn = psycopg.connect(database_url, autocommit=True)
-        register_vector(self._conn)
+    def __init__(self, *, api_key: str, index_name: str, dim: int) -> None:
+        from pinecone import Pinecone
+
+        self._pc: Pinecone = Pinecone(api_key=api_key)
         self._dim = dim
-        self._conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        self._conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS chunks (
-                id TEXT PRIMARY KEY,
-                doc_id TEXT NOT NULL,
-                idx INTEGER NOT NULL,
-                text TEXT NOT NULL,
-                embedding vector({dim})
+        self._ensure_index(index_name)
+        self._index = self._pc.Index(index_name)
+
+    def _ensure_index(self, name: str) -> None:
+        """Create the index if missing (serverless, cosine); verify the dimension if present."""
+        from pinecone import ServerlessSpec
+
+        if not self._pc.has_index(name):
+            self._pc.create_index(
+                name=name,
+                dimension=self._dim,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
-            """
-        )
+            # A fresh index takes a moment to come up; wait until Pinecone reports it ready.
+            while not self._pc.describe_index(name).status.ready:
+                time.sleep(1)
+            return
+        existing_dim = self._pc.describe_index(name).dimension
+        if existing_dim != self._dim:
+            raise ConfigError(
+                f"Pinecone index '{name}' has dimension {existing_dim}, but the embedder "
+                f"produces {self._dim}-dim vectors. Delete the index (or use another name) "
+                "and re-run `rag ingest`."
+            )
 
     def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
-        with self._conn.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO chunks (id, doc_id, idx, text, embedding) "
-                "VALUES (%s,%s,%s,%s,%s) "
-                "ON CONFLICT (id) DO UPDATE SET "
-                "text = EXCLUDED.text, embedding = EXCLUDED.embedding",
-                [
-                    (c.id, c.doc_id, c.index, c.text, e)
-                    for c, e in zip(chunks, embeddings, strict=True)
-                ],
-            )
+        records = [
+            {
+                "id": c.id,
+                "values": e,
+                "metadata": {"doc_id": c.doc_id, "index": c.index, "text": c.text},
+            }
+            for c, e in zip(chunks, embeddings, strict=True)
+        ]
+        # Batched upserts: Pinecone caps request sizes, and batching keeps memory flat.
+        for start in range(0, len(records), self._UPSERT_BATCH):
+            self._index.upsert(vectors=records[start : start + self._UPSERT_BATCH])
 
     def search(self, query_embedding: list[float], k: int) -> list[RetrievedChunk]:
-        rows = self._conn.execute(
-            "SELECT id, doc_id, idx, text, 1 - (embedding <=> %s::vector) AS score "
-            "FROM chunks ORDER BY embedding <=> %s::vector LIMIT %s",
-            (query_embedding, query_embedding, k),
-        ).fetchall()
-        return [
-            RetrievedChunk(
-                chunk=Chunk(id=r[0], doc_id=r[1], index=r[2], text=r[3]),
-                score=float(r[4]),
-                source="dense",
+        response = self._index.query(vector=query_embedding, top_k=k, include_metadata=True)
+        results: list[RetrievedChunk] = []
+        for match in response.matches:
+            meta = match.metadata or {}
+            chunk = Chunk(
+                id=match.id,
+                doc_id=str(meta.get("doc_id", "")),
+                text=str(meta.get("text", "")),
+                index=int(meta.get("index", 0)),
             )
-            for r in rows
-        ]
+            results.append(RetrievedChunk(chunk=chunk, score=float(match.score), source="dense"))
+        return results
 
     def __len__(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
-        return int(row[0]) if row else 0
+        return int(self._index.describe_index_stats().total_vector_count)
