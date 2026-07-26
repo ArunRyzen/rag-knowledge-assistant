@@ -28,3 +28,6 @@ venv/
 Thumbs.db
 .idea/
 .vscode/
+
+# Big-document practice folder (downloaded books/reports - not committed)
+bigdocs/

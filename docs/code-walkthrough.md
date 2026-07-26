@@ -128,6 +128,7 @@ production hardening (cache, rate limiter, metrics, eval harness).
 | 14 | `api.py` + `cli.py` + `corpus.py` | The two front doors |
 | 15 | `errors.py` | The exception family |
 | 16 | `debuglog.py` | `LLM_DEBUG=1` tracing of every AI request/response |
+| 17 | `chat.py` | The multi-agent guarded chatbot (`rag chat`) |
 
 ---
 
@@ -399,6 +400,17 @@ going in, and the answer (or vector count) coming out. Keys are never logged. Th
 are traced with the same helpers, which is how the tracing itself gets tested offline.
 You can set `LLM_DEBUG=1` either as a real environment variable or as a line in the project's
 `.env` file — the environment variable takes precedence whenever it is set.
+
+## 17. `chat.py` — the multi-agent guarded chatbot
+
+`rag chat` composes four agents around the pipeline, each a single LLM call with its own system
+prompt: an **input guardrail** (refuses injection/harmful messages before retrieval runs), a
+**condenser** (rewrites follow-ups like "what does it reward?" into standalone questions using
+chat history), the **RAG pipeline** itself, and a **grounding checker** that vetoes answers the
+retrieved passages don't support. All agents share one injected `llm(system, prompt)` callable —
+Gemini in production (`build_chat` in `factory.py`), a scripted stub in `tests/test_chat.py`, so
+the entire workflow tests offline. The file's docstring has the flow diagram; every agent's
+verdict shows up in the `LLM_DEBUG=1` trace as an `AGENT (...)` block.
 
 ---
 

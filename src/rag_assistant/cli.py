@@ -20,7 +20,7 @@ import typer
 from rag_assistant.config import load_settings
 from rag_assistant.corpus import load_corpus
 from rag_assistant.evaluation import GoldenItem, compare_modes
-from rag_assistant.factory import build_pipeline
+from rag_assistant.factory import build_chat, build_pipeline
 from rag_assistant.golden import GOLDEN
 from rag_assistant.pipeline import RAGPipeline
 
@@ -91,6 +91,48 @@ def ask(
         typer.echo("\nSources:", err=True)
         for i, ctx in enumerate(result.contexts, start=1):
             typer.echo(f"  [{i}] {ctx.chunk.doc_id} (score={ctx.score:.3f})", err=True)
+
+
+@app.command()
+def chat(
+    data: Annotated[Path | None, typer.Option(help="Folder/file of docs (.md/.txt/.pdf).")] = None,
+    once: Annotated[
+        str | None, typer.Option(help="Ask a single message non-interactively and exit.")
+    ] = None,
+) -> None:
+    """Multi-turn guarded chatbot: input guardrail → condense → RAG answer → grounding check."""
+    settings = load_settings()
+    pipeline = build_pipeline(settings)
+    persistent = settings.vector_store == "pinecone"
+    _ingest_corpus(pipeline, data, dense=not persistent)
+    session = build_chat(settings, pipeline)
+
+    def _respond(message: str) -> None:
+        turn = session.turn(message)
+        typer.echo(f"bot> {turn.reply}")
+        if turn.answer and turn.answer.contexts and turn.grounded:
+            docs = ", ".join(sorted({c.doc_id for c in turn.answer.citations}))
+            typer.echo(f"     (sources: {docs})", err=True)
+        if not turn.allowed:
+            typer.echo("     [input guardrail refused this message]", err=True)
+        elif turn.grounded is False:
+            typer.echo("     [grounding checker vetoed the model's answer]", err=True)
+
+    if once is not None:
+        _respond(once)
+        return
+
+    typer.echo("Guarded chat — type a question, or 'exit' to quit.", err=True)
+    while True:
+        try:
+            message = input("you> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if not message:
+            continue
+        if message.lower() in {"exit", "quit"}:
+            break
+        _respond(message)
 
 
 @app.command(name="eval")

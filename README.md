@@ -112,6 +112,7 @@ mapped to the interview question it prepares you for.
 rag ingest                                # chunk + embed data/ into Pinecone (run once / on change)
 rag ask "Which algorithm makes ANN search fast?"          # query the corpus
 rag ask "..." --data ./my_docs --mode hybrid --rerank     # your own docs / other modes
+rag chat                                  # multi-agent guarded chatbot (multi-turn, see below)
 rag eval                                  # dense vs sparse vs hybrid vs +rerank
 ```
 
@@ -155,6 +156,22 @@ Remove-Item Env:LLM_DEBUG
 4. **Grounded generation** — the model answers **only** from numbered contexts, cites them with
    `[n]` markers (which are parsed back into real citations), or says it doesn't know.
 5. **Evaluation** — recall@k and MRR over a labelled golden set, comparing every retrieval mode.
+
+## The guarded chatbot (multi-agent workflow)
+
+`rag chat` layers four specialized agents over the pipeline — each one focused LLM call:
+
+```
+message → INPUT GUARD → CONDENSER → RAG pipeline → GROUNDING CHECKER → reply
+          (blocks injection) (follow-up →      (retrieve + answer)  (vetoes unsupported
+                              standalone Q)                          answers)
+```
+
+Follow-ups like *"what does it reward?"* are condensed into standalone questions using chat
+history; injection attempts (*"ignore your instructions..."*) are refused before retrieval runs;
+answers the contexts don't support get vetoed by the checker. The whole workflow is offline-testable
+with a scripted stub LLM (`tests/test_chat.py`). See `src/rag_assistant/chat.py` — the workflow
+diagram is at the top of the file.
 
 ## The ingest/query split (worth understanding)
 

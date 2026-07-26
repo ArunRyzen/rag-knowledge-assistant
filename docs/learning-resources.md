@@ -64,6 +64,29 @@ docs, original papers, or widely-trusted explainers.
 
 **In this project:** `api.py`, `cache.py`, `ratelimit.py`, `docs/deployment.md`.
 
+## Big documents to practice chunking on
+
+The bundled `data/` docs are deliberately small (unambiguous eval labels). Real chunking
+experience needs real size — download from these free sources into a `bigdocs/` folder
+(gitignored) and point the CLI at it with `--data .\bigdocs`:
+
+| Source | What you get | Grab one |
+|---|---|---|
+| [Project Gutenberg](https://www.gutenberg.org/) | 70,000+ full public-domain books as plain `.txt` — hundreds of chunks each | `curl.exe -L -o bigdocs\frankenstein.txt https://www.gutenberg.org/cache/epub/84/pg84.txt` |
+| [arXiv](https://arxiv.org/) | Research papers as PDF — realistic technical PDFs with sections/references | e.g. the RAG survey [arXiv 2312.10997](https://arxiv.org/abs/2312.10997) → "Download PDF" |
+| [SEC EDGAR](https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany) | Company annual reports (10-K) — long, messy, table-heavy: the hard case | Search any company → 10-K filing |
+| [RFC Editor](https://www.rfc-editor.org/) | Internet standards as clean `.txt` — long structured technical prose | e.g. [RFC 9110 (HTTP)](https://www.rfc-editor.org/rfc/rfc9110.txt) |
+| [Wikipedia](https://en.wikipedia.org/wiki/Special:Export) | Any article as export; or just save a long article as text | Pick a topic you know deeply — best for judging retrieval quality |
+
+Try: chunk a whole book offline first (no API cost) —
+
+```powershell
+uv run python -c "from pathlib import Path; from rag_assistant.chunking import chunk_document; t = Path('bigdocs/frankenstein.txt').read_text(encoding='utf-8'); print(len(chunk_document(doc_id='book', text=t, size=800, overlap=120)), 'chunks')"
+```
+
+— then `rag ingest --data .\bigdocs` when you're ready to spend embedding calls on it.
+(Frankenstein: ~439k characters → ~769 chunks at the default size.)
+
 ## How to use this list in interview week
 
 Don't read everything. Priority order if time is short: **Gemini embeddings guide → Pinecone
