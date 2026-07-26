@@ -74,6 +74,27 @@ class Answerer(Protocol):
     def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer: ...
 
 
+def generate_text(
+    *, model: str, max_tokens: int, api_key: str | None, system: str, prompt: str
+) -> str:
+    """One Gemini text-generation call. Shared by the answerer and the chat agents (chat.py)."""
+    # The system instruction and token cap ride along in a config object.
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=0,  # deterministic-ish: we want grounded answers, not creativity
+        ),
+    )
+    return response.text or ""
+
+
 class GeminiAnswerer:
     """Grounded, cited answer synthesis via the Gemini API."""
 
@@ -82,29 +103,18 @@ class GeminiAnswerer:
         self._max_tokens = max_tokens
         self._api_key = api_key
 
-    def _generate(self, system: str, prompt: str) -> str:
-        # The system instruction and token cap ride along in a config object.
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=self._api_key)
-        response = client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system,
-                max_output_tokens=self._max_tokens,
-                temperature=0,  # deterministic-ish: we want grounded answers, not creativity
-            ),
-        )
-        return response.text or ""
-
     def answer(self, question: str, contexts: list[RetrievedChunk]) -> Answer:
         if not contexts:
             return Answer(question=question, text="I don't know — no relevant context found.")
         label = f"gemini/{self._model}"
         _log_answer_request(label, _SYSTEM, question, contexts)
-        text = self._generate(_SYSTEM, _build_prompt(question, contexts))
+        text = generate_text(
+            model=self._model,
+            max_tokens=self._max_tokens,
+            api_key=self._api_key,
+            system=_SYSTEM,
+            prompt=_build_prompt(question, contexts),
+        )
         _log_answer_response(label, text)
         return Answer(
             question=question,

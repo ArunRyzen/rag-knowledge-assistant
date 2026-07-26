@@ -7,10 +7,13 @@ missing keys fail loudly with a ConfigError instead of silently degrading.
 
 from __future__ import annotations
 
+from functools import partial
+
+from rag_assistant.chat import GuardedChat
 from rag_assistant.config import Settings
 from rag_assistant.embeddings import Embedder, GeminiEmbedder
 from rag_assistant.errors import ConfigError
-from rag_assistant.generation import Answerer, GeminiAnswerer
+from rag_assistant.generation import Answerer, GeminiAnswerer, generate_text
 from rag_assistant.pipeline import RAGPipeline
 from rag_assistant.rerank import CrossEncoderReranker, NoopReranker, Reranker
 from rag_assistant.vectorstore import InMemoryVectorStore, PineconeVectorStore, VectorStore
@@ -60,6 +63,21 @@ def build_answerer(settings: Settings) -> Answerer:
 
 def build_reranker(settings: Settings) -> Reranker:
     return CrossEncoderReranker() if settings.use_reranker else NoopReranker()
+
+
+def build_chat(settings: Settings, pipeline: RAGPipeline) -> GuardedChat:
+    """The guarded chatbot: same pipeline, plus the guard/condense/check agents on Gemini."""
+    llm = partial(
+        _agent_llm,
+        model=settings.gemini_model,
+        api_key=_require_gemini_key(settings),
+    )
+    return GuardedChat(pipeline=pipeline, llm=llm)
+
+
+def _agent_llm(system: str, prompt: str, *, model: str, api_key: str) -> str:
+    # Agent calls are short verdicts/rewrites — a small token cap keeps them fast and cheap.
+    return generate_text(model=model, max_tokens=256, api_key=api_key, system=system, prompt=prompt)
 
 
 def build_pipeline(settings: Settings) -> RAGPipeline:
