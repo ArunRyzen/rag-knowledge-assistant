@@ -12,9 +12,9 @@ services:
     autoDeploy: true
     envVars:
       - key: VECTOR_STORE
-        value: memory          # use pgvector + DATABASE_URL for a persistent deployment
-      # Set these as secrets in the Render dashboard for live embeddings / generation
-      # (GEMINI_API_KEY alone covers both):
-      # - key: GEMINI_API_KEY
-      # - key: OPENAI_API_KEY
-      # - key: ANTHROPIC_API_KEY
+        value: pinecone        # or "memory" for a stateless demo (re-embeds on each boot)
+      - key: PINECONE_INDEX
+        value: rag-assistant
+      # Set these as SECRETS in the Render dashboard (never in this file):
+      # - key: GEMINI_API_KEY    (required — embeddings + answers)
+      # - key: PINECONE_API_KEY  (required when VECTOR_STORE=pinecone)

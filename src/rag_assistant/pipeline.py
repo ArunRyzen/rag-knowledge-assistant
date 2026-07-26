@@ -55,17 +55,30 @@ class RAGPipeline:
         """Exposed so the eval harness can probe retrieval directly."""
         return self._retriever
 
-    def ingest(self, doc_id: str, text: str) -> int:
-        """Chunk, embed, and index one document. Returns the number of chunks added."""
+    @property
+    def vector_count(self) -> int:
+        """How many vectors the dense store currently holds (for sanity checks / status)."""
+        return len(self._store)
+
+    def ingest(self, doc_id: str, text: str, *, dense: bool = True) -> int:
+        """Chunk, embed, and index one document. Returns the number of chunks added.
+
+        Every chunk is indexed TWICE — once as a vector (for meaning-based search) and once
+        in BM25 (for exact-word search). That dual indexing is what makes hybrid possible.
+
+        `dense=False` skips the embed-and-store half and only rebuilds the in-memory BM25
+        index. Used when the vector store is persistent (Pinecone): the vectors are already
+        there from `rag ingest`, but BM25 lives in this process and must be rebuilt each run —
+        chunking is deterministic, so both sides see identical chunks.
+        """
         chunks = chunk_document(
             doc_id=doc_id, text=text, size=self._chunk_size, overlap=self._chunk_overlap
         )
         if not chunks:
             return 0
-        embeddings = self._embedder.embed([c.text for c in chunks])
-        # Every chunk is indexed TWICE — once as a vector (for meaning-based search) and once
-        # in BM25 (for exact-word search). That dual indexing is what makes hybrid possible.
-        self._store.add(chunks, embeddings)
+        if dense:
+            embeddings = self._embedder.embed([c.text for c in chunks])
+            self._store.add(chunks, embeddings)
         self._bm25.add(chunks)
         return len(chunks)
 

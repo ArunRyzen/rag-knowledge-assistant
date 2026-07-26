@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from rag_assistant.cache import SemanticCache
-from rag_assistant.embeddings import HashingEmbedder
+from tests.conftest import StubEmbedder
 
 
 def _cache() -> SemanticCache:
-    return SemanticCache(HashingEmbedder(dim=128), threshold=0.9)
+    return SemanticCache(StubEmbedder(dim=128), threshold=0.9)
 
 
 def test_put_then_get_is_a_hit() -> None:

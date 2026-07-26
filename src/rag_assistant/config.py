@@ -4,8 +4,9 @@ Every knob the pipeline exposes lives here as one `Settings` field. Pydantic rea
 from an environment variable of the same name (upper-cased), falling back to a `.env` file, then
 to the default written below. So `chunk_size` ⇐ env var `CHUNK_SIZE` ⇐ default 800.
 
-Defaults are chosen so the pipeline runs with the least friction: an in-memory vector store
-(no database) and no API keys required. Swap to pgvector by setting VECTOR_STORE=pgvector.
+Two keys are required to run: GEMINI_API_KEY (embeddings + answers) and — when
+VECTOR_STORE=pinecone — PINECONE_API_KEY. The factory raises a clear ConfigError if they are
+missing, so a typo in `.env` fails loudly instead of silently degrading.
 """
 
 from __future__ import annotations
@@ -17,30 +18,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # --- API keys ---
-    # If GEMINI_API_KEY is set, Gemini is used for BOTH embeddings and answers (it's the
-    # provider most learners have — one free key covers everything). With no keys at all the
-    # pipeline still runs, using the offline hashing embedder + fake answerer.
+    # --- Gemini (required) ---
+    # One key covers both halves of the pipeline: semantic embeddings AND answer synthesis.
     gemini_api_key: str | None = Field(default=None)
-    openai_api_key: str | None = Field(default=None)
-    anthropic_api_key: str | None = Field(default=None)
-
-    # Embeddings
     gemini_embedding_model: str = Field(default="gemini-embedding-001")
     gemini_embedding_dim: int = Field(default=768)  # gemini-embedding-001 supports 768/1536/3072
-    embedding_model: str = Field(default="text-embedding-3-small")  # OpenAI path
-    embedding_dim: int = Field(default=1536)  # dimension of the OpenAI model above
-
-    # Generation (answer synthesis)
-    generation_provider: str = Field(default="gemini")  # gemini | anthropic | openai
     gemini_model: str = Field(default="gemini-2.5-flash")
-    anthropic_model: str = Field(default="claude-opus-4-8")
-    openai_model: str = Field(default="gpt-4o")
     max_tokens: int = Field(default=1024)
 
-    # Vector store: "memory" (zero-infra default) or "pgvector"
+    # --- Vector store: "memory" (in-process, gone when the process exits) or "pinecone" ---
+    # Pinecone is the persistent path: ingest once with `rag ingest`, query any time after.
     vector_store: str = Field(default="memory")
-    database_url: str | None = Field(default=None)  # required for pgvector
+    pinecone_api_key: str | None = Field(default=None)
+    pinecone_index: str = Field(default="rag-assistant")
 
     # Chunking — THE chunk-size knob. Documents are cut into pieces of roughly this many
     # characters before indexing (see chunking.py). Halve it for more precise-but-fragmented

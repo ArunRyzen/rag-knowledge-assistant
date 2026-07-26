@@ -31,19 +31,21 @@ then re-scores only the top candidates by reading query + passage *together* —
 too expensive to run corpus-wide. Default is a no-op reranker; the cross-encoder is an optional extra
 so the core stays light. This mirrors how production RAG actually trades cost for precision.
 
-### 3. Swappable stores: in-memory default, pgvector for production
-The default `InMemoryVectorStore` (numpy cosine) needs no database — so the project runs and tests
-instantly. `PgVectorStore` is the production path: vectors live next to relational data, with an HNSW
-index for scale. Same `VectorStore` protocol, so the retriever is identical. (Honest scope note: BM25
-is in-memory in both paths; a full pgvector deployment would move sparse retrieval to Postgres
-`tsvector` — the fusion logic is unchanged.)
+### 3. Swappable stores: in-memory for experiments, Pinecone for persistence
+`InMemoryVectorStore` (numpy cosine) needs no infrastructure — instant, free, gone at process
+exit. `PineconeVectorStore` is the persistent path: a managed serverless vector database, upserts
+idempotent by chunk id, chunk text carried in record metadata so results need no second lookup.
+Same `VectorStore` protocol, so the retriever is identical. (Honest scope note: BM25 is in-memory
+in both paths — with Pinecone, `rag ask` rebuilds the sparse index locally from `data/` while
+dense search hits the persistent index; Pinecone's sparse vectors could make hybrid fully
+persistent later. The fusion logic would be unchanged.)
 
-### 4. Offline-by-default embedder and answerer
-No keys? A deterministic **hashing embedder** (real lexical similarity) and a **fake answerer** keep
-the entire pipeline — chunking, retrieval, fusion, evaluation — runnable and testable. Add a single
-`GEMINI_API_KEY` for semantic embeddings **and** real synthesis (OpenAI embeddings and
-Anthropic/OpenAI synthesis are also supported). This is the same provider-pattern
-as the `structured-extractor` project, applied to four seams.
+### 4. One real path, loud failures, stubs at the seams
+Gemini is required — one key covers semantic embeddings AND synthesis; a missing key raises a
+`ConfigError` naming exactly what to set, instead of silently degrading. Offline testability is
+preserved where it belongs: `tests/conftest.py` injects stub implementations of the same
+`Embedder`/`Answerer` protocols, so the full pipeline — chunking, retrieval, fusion, evaluation —
+still runs in CI with no keys or network.
 
 ### 5. Grounded, cited generation
 The generator is instructed to answer **only** from numbered contexts, cite them, or say it doesn't
@@ -64,6 +66,7 @@ size is the highest-leverage knob: too big bloats context and hurts precision; t
 context a passage needs. Tune it against the eval harness, not by feel.
 
 ## Trade-offs left open
-- Sparse retrieval in the pgvector path (currently in-memory BM25 → Postgres FTS).
+- Persistent sparse retrieval (currently in-memory BM25 → Pinecone sparse vectors or Postgres FTS).
 - Hosted reranker (Voyage/Cohere) vs the local cross-encoder.
+- Query-side techniques: multi-query expansion (Task 6 in `tasks/`), HyDE, query rewriting.
 - Answer-quality / faithfulness evals — Milestone 4.

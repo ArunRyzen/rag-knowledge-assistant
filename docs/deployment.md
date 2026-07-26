@@ -30,10 +30,10 @@ curl localhost:8000/health
 1. Push to GitHub (done).
 2. Create a Render account, **New → Blueprint**, point it at this repo. Render reads
    [`render.yaml`](../render.yaml) and builds the Docker web service.
-3. Set secrets in the dashboard (`GEMINI_API_KEY` covers live embeddings **and** answers;
-   `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` also work); the default offline embedder works with none.
-4. For persistence, add a Postgres instance, set `VECTOR_STORE=pgvector` + `DATABASE_URL`, and
-   `uv sync --extra pgvector` in the image.
+3. Set secrets in the dashboard: `GEMINI_API_KEY` (embeddings **and** answers) and
+   `PINECONE_API_KEY` + `PINECONE_INDEX` with `VECTOR_STORE=pinecone` for persistent vectors —
+   the natural cloud setup, since Pinecone is already managed. `VECTOR_STORE=memory` also works
+   for a stateless demo (the corpus re-embeds on each boot).
 
 Fly.io / Railway are equivalent: they build the same `Dockerfile`; the start command is already the
 `uvicorn` `CMD`.
@@ -51,7 +51,7 @@ Fly.io / Railway are equivalent: they build the same `Dockerfile`; the start com
 - **Model tiering** — cheaper embedding/generation models for high volume (see the cost table in
   `docs/architecture.md`).
 - **Async + concurrency** — FastAPI is async; run multiple workers (`uvicorn --workers N`) behind a
-  load balancer; make the vector store the shared state (pgvector).
+  load balancer; the vector store is already shared state (Pinecone).
 - **Inference at scale** (conceptual) — self-hosted open models use **vLLM** (continuous batching +
   KV-cache) on GPUs; **Kubernetes** for orchestration. This service stays CPU/API-friendly by design.
 - **Observability** — wire request traces + eval gates from

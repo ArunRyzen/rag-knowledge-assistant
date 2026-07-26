@@ -1,12 +1,28 @@
-"""HTTP surface: health, ask, ingest, eval — using the offline default pipeline (no keys)."""
+"""HTTP surface: health, ask, ingest, eval — with offline stubs injected in place of the real
+Gemini-backed pipeline, so no keys or network are needed."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
 from fastapi.testclient import TestClient
 
 from rag_assistant import api
+from rag_assistant.cache import SemanticCache
+from tests.conftest import StubEmbedder, make_pipeline
 
 client = TestClient(api.app)
+
+
+@pytest.fixture(autouse=True)
+def _offline_backend(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Swap the lazily-built real pipeline/cache for offline stubs, per test."""
+    pipeline = make_pipeline()
+    cache = SemanticCache(StubEmbedder(dim=128), threshold=0.97)
+    monkeypatch.setattr(api, "_pipeline", lambda: pipeline)
+    monkeypatch.setattr(api, "_cache", lambda: cache)
+    yield
 
 
 def test_health() -> None:

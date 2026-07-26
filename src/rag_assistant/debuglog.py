@@ -3,9 +3,8 @@
 Set the environment variable ``LLM_DEBUG=1`` **or** put ``LLM_DEBUG=1`` in a ``.env`` file in
 your working directory, and every embedder and answerer call prints a plain-ASCII
 request/response block to **stderr**, so you can watch exactly what goes into (and comes out of)
-each model. The offline fakes are traced too, so this works with no API key. The real environment
-variable always wins over the ``.env`` file; unset, empty, ``"0"``, or ``"false"`` (any casing)
-leaves it off.
+each model. The real environment variable always wins over the ``.env`` file; unset, empty,
+``"0"``, or ``"false"`` (any casing) leaves it off.
 
 Ground rules baked in here:
 
