@@ -12,17 +12,76 @@ cited answers · recall@k / MRR evaluation · a real document corpus · hands-on
 
 ---
 
-## ⚡ Quick Start
+## 🚀 How to run — step by step
 
-```bash
-git clone https://github.com/ArunRyzen/rag-knowledge-assistant.git && cd rag-knowledge-assistant
+**Step 1 — Get the code and install** (needs [uv](https://docs.astral.sh/uv/); one time)
+```powershell
+git clone https://github.com/ArunRyzen/rag-knowledge-assistant.git
+cd rag-knowledge-assistant
 uv sync --extra dev
-cp .env.example .env      # fill in GEMINI_API_KEY and PINECONE_API_KEY (see Setup below)
-
-uv run rag ingest         # chunk + embed data/ and upsert into Pinecone (run once)
-uv run rag ask "Why does hybrid retrieval beat dense-only?"
-uv run rag eval           # compare dense vs sparse vs hybrid retrieval, with numbers
 ```
+
+**Step 2 — Add your two free API keys** (one time)
+```powershell
+copy .env.example .env
+# then edit .env and fill in:
+#   GEMINI_API_KEY    → free key from https://aistudio.google.com/apikey
+#   PINECONE_API_KEY  → free key from https://app.pinecone.io  (API Keys page)
+```
+
+**Step 3 — Ingest the textbook** (run once, and again whenever documents change)
+```powershell
+uv run rag ingest            # chunk + embed the book, upsert vectors into Pinecone
+uv run rag ingest --reset    # use this instead when you changed/removed documents
+```
+
+**Step 4 — Ask questions**
+```powershell
+uv run rag ask "Who is Valli's pet?"
+uv run rag ask "What does the rat build?" --mode sparse    # try dense / sparse / hybrid
+```
+
+**Step 5 — Chat with the education bot** (multi-turn, guardrails, web fallback)
+```powershell
+uv run rag chat
+# you> What does Chittu eat?          → answered from the book, with sources
+# you> Why is the sky blue?           → not in the book → web-search agent answers
+# you> Which movie should I watch?    → refused: education questions only
+# you> exit
+```
+Note: the free Gemini tier allows ~5 model calls/minute and each chat turn uses 3–4,
+so roughly one chat turn per minute — the bot tells you politely when to wait.
+
+**Step 6 — Measure retrieval quality**
+```powershell
+uv run rag eval              # dense vs sparse vs hybrid vs +rerank on the golden set
+```
+
+**Step 7 — See inside every AI call** (the best way to learn)
+```powershell
+$env:LLM_DEBUG = "1"
+uv run rag ask "Who is Valli's pet?"     # watch prompts + agent verdicts on stderr
+Remove-Item Env:LLM_DEBUG
+```
+
+**Step 8 — Run the API server** (optional)
+```powershell
+uv run uvicorn rag_assistant.api:app --reload
+# open http://127.0.0.1:8000/docs and call /ask, /eval, /metrics from the browser
+```
+
+**Step 9 — Use your own documents** (optional; any folder of .md/.txt/.pdf)
+```powershell
+uv run rag ask "your question" --data .\my_docs
+```
+
+**Step 10 — Run the checks** (offline, no API cost)
+```powershell
+uv run ruff check .; uv run mypy .; uv run pytest
+```
+
+Then open **[`tasks/README.md`](tasks/README.md)** — the hands-on learning tasks — and start
+with Task 1.
 
 ## Problem
 
@@ -35,17 +94,17 @@ a change helped or hurt. This project is RAG done the way teams actually ship it
 ## What it does
 
 ```bash
-rag ask "How are two ranked lists combined into one?"
-# → Reciprocal Rank Fusion combines lists by rank... [1]
-#   Sources: [1] hybrid-rrf (score=0.033)
+rag ask "What does Chittu eat?"
+# → Chittu eats grass, and also bananas, leaves and roots. [1]
+#   Sources: [1] unit-1-my-pet (score=0.033)
 
 rag eval        # compare retrieval strategies on a labelled golden set
 ```
 ```
-dense            recall@5=0.88  MRR=0.79  (n=16)
-sparse           recall@5=0.94  MRR=0.86  (n=16)
-hybrid           recall@5=1.00  MRR=0.93  (n=16)
-hybrid+rerank    recall@5=1.00  MRR=0.97  (n=16)
+dense            recall@5=0.92  MRR=0.83  (n=12)
+sparse           recall@5=0.92  MRR=0.88  (n=12)
+hybrid           recall@5=1.00  MRR=0.94  (n=12)
+hybrid+rerank    recall@5=1.00  MRR=0.94  (n=12)
 ```
 *(Illustrative — run it yourself on the bundled corpus.)*
 
@@ -67,7 +126,7 @@ flowchart LR
 
 Every stage sits behind a small interface (`Embedder`, `VectorStore`, `Reranker`, `Answerer`), so
 backends swap freely — and the test suite runs fully offline by injecting stub implementations of
-the same protocols. Full reasoning in [`docs/architecture.md`](docs/architecture.md).
+the same protocols. Full reasoning in [`docs/how-it-works.md`](docs/how-it-works.md).
 
 ## Tech stack
 
@@ -92,38 +151,21 @@ cp .env.example .env
 Prefer zero infrastructure for a quick experiment? Set `VECTOR_STORE=memory` — same pipeline,
 in-process vectors, nothing persisted between runs.
 
-## The corpus is the study guide
+## The corpus: a real State Board textbook
 
-The bundled `data/` folder contains real documents about RAG itself — embeddings, chunking, BM25,
-RRF, reranking, vector databases, evaluation, grounded generation, and a real **PDF** on query
-transformation (extracted with `pypdf`, then chunked like everything else). Every query you
-practice returns an answer worth reading. Swap in your own `.md`/`.txt`/`.pdf` folder with
-`--data`. The full data journey — PDF on disk to cited answer — is written up step by step in
-[`docs/end-to-end-flow.md`](docs/end-to-end-flow.md).
+The `data/` folder holds the **Tamil Nadu State Board (Samacheer Kalvi) Class 1 English book,
+Term 1** — extracted from the official PDF with `pypdf` and split into one file per unit
+(`unit-1-my-pet`, `unit-2-play-time`, `unit-3-families`). The bot answers questions a child
+would be quizzed on: *Who is Valli's pet? What does the rat build? Where does Nila live?* The
+golden eval set (`golden.py`) is 12 labelled questions from the book. Swap in any
+`.md`/`.txt`/`.pdf` folder with `--data`. The full data journey — textbook PDF to cited answer
+— is written up step by step in [`docs/how-it-works.md`](docs/how-it-works.md).
 
-**[`tasks/README.md`](tasks/README.md) is the learning path**: 8 hands-on exercises (chunk-size
-experiments, growing the golden set, forcing refusals, implementing multi-query retrieval), each
-mapped to the interview question it prepares you for.
+**[`tasks/README.md`](tasks/README.md) is the learning path**: 13 hands-on exercises, each
+mapped to the interview question it prepares you for, plus a 7-day plan.
 
-## Usage
+## Use it as a library
 
-**CLI**
-```bash
-rag ingest                                # chunk + embed data/ into Pinecone (run once / on change)
-rag ask "Which algorithm makes ANN search fast?"          # query the corpus
-rag ask "..." --data ./my_docs --mode hybrid --rerank     # your own docs / other modes
-rag chat                                  # multi-agent guarded chatbot (multi-turn, see below)
-rag eval                                  # dense vs sparse vs hybrid vs +rerank
-```
-
-**API**
-```bash
-uv run uvicorn rag_assistant.api:app --reload
-# POST /ask {"question": "...", "mode": "hybrid"}   POST /ingest {"doc_id","text"}
-# GET  /eval     GET /health     GET /metrics
-```
-
-**Library**
 ```python
 from rag_assistant.config import load_settings
 from rag_assistant.factory import build_pipeline
@@ -131,17 +173,6 @@ from rag_assistant.factory import build_pipeline
 pipe = build_pipeline(load_settings())
 pipe.ingest("notes", open("notes.md").read())
 print(pipe.ask("...", mode="hybrid", rerank=True).text)
-```
-
-## Peek behind the curtain (`LLM_DEBUG`)
-
-Set `LLM_DEBUG=1` (env var or `.env` line; the env var wins) and every embedder and answerer call
-prints a plain request/response block to stderr — the exact system prompt, contexts, and answer.
-API keys are never logged.
-
-```powershell
-$env:LLM_DEBUG = "1"; uv run rag ask "What does the k1 parameter control?"
-Remove-Item Env:LLM_DEBUG
 ```
 
 ## How it works (the parts interviewers ask about)
@@ -157,21 +188,26 @@ Remove-Item Env:LLM_DEBUG
    `[n]` markers (which are parsed back into real citations), or says it doesn't know.
 5. **Evaluation** — recall@k and MRR over a labelled golden set, comparing every retrieval mode.
 
-## The guarded chatbot (multi-agent workflow)
+## The education chatbot (multi-agent workflow)
 
-`rag chat` layers four specialized agents over the pipeline — each one focused LLM call:
+`rag chat` composes five specialized agents — each one focused LLM call:
 
 ```
-message → INPUT GUARD → CONDENSER → RAG pipeline → GROUNDING CHECKER → reply
-          (blocks injection) (follow-up →      (retrieve + answer)  (vetoes unsupported
-                              standalone Q)                          answers)
+message → INPUT GUARD → CONDENSER → RAG (book) → GROUNDING CHECK → reply from book
+          education-only  follow-up →                 │ NO_ANSWER / UNGROUNDED
+          blocks injection  standalone Q              ▼
+                                              WEB SEARCH AGENT → "(from web search) ..."
 ```
 
-Follow-ups like *"what does it reward?"* are condensed into standalone questions using chat
-history; injection attempts (*"ignore your instructions..."*) are refused before retrieval runs;
-answers the contexts don't support get vetoed by the checker. The whole workflow is offline-testable
-with a scripted stub LLM (`tests/test_chat.py`). See `src/rag_assistant/chat.py` — the workflow
-diagram is at the top of the file.
+- **Education only**: movies, gossip, shopping → refused before retrieval even runs.
+- **Book first**: answers come from the textbook, cited by unit.
+- **Web fallback**: when the checker rules the book doesn't cover it (NO_ANSWER) or the model
+  said something unsupported (UNGROUNDED), a web-search agent — Gemini with Google Search
+  grounding — answers instead, clearly labelled.
+- Follow-ups (*"what does she eat?"*) are condensed into standalone questions from history.
+
+The whole workflow is offline-testable with scripted stub agents (`tests/test_chat.py`). See
+`src/rag_assistant/chat.py` — the flow diagram is at the top of the file.
 
 ## The ingest/query split (worth understanding)
 
@@ -193,8 +229,8 @@ protocols, plus mocked Gemini SDK clients to verify the live call contracts.
 
 ## Serving & deployment
 
-Production-serving features are built into the API (full guide:
-[`docs/deployment.md`](docs/deployment.md)):
+Production-serving features are built into the API (full guide: the serving section of
+[`docs/how-it-works.md`](docs/how-it-works.md)):
 - **Semantic response cache** — paraphrased repeats skip retrieval + generation (`"cached": true`).
 - **Rate limiting** — per-client sliding window (HTTP 429 over the limit).
 - **`GET /metrics`** — request count, cache hit rate, cache size, rate-limit config.
@@ -210,14 +246,12 @@ docker run -p 8000:8000 --env-file .env rag-knowledge-assistant
 - Managed sparse/hybrid search (Pinecone sparse vectors) so BM25 persists too.
 - Streaming answers and PDF/OCR ingestion.
 
-## Learn more
-- [`tasks/README.md`](tasks/README.md) — **start here to learn** — 13 exercises + a 7-day interview plan
-- [`docs/end-to-end-flow.md`](docs/end-to-end-flow.md) — the full data journey, PDF → cited answer
-- [`docs/learning-resources.md`](docs/learning-resources.md) — curated official docs & papers, staged
-- [`docs/code-walkthrough.md`](docs/code-walkthrough.md) — plain-English, file-by-file tour
-- [`docs/architecture.md`](docs/architecture.md) — design decisions & trade-offs
-- [`docs/interview-questions.md`](docs/interview-questions.md) — RAG Q&A this project answers
-- [`docs/lessons-learned.md`](docs/lessons-learned.md)
+## Learn more — just 3 docs
+
+- [`tasks/README.md`](tasks/README.md) — **start here** — 13 hands-on exercises + a 7-day interview plan
+- [`docs/how-it-works.md`](docs/how-it-works.md) — the full data journey (PDF → cited answer), design decisions, serving & deployment
+- [`docs/rag-concepts.md`](docs/rag-concepts.md) — one-page notes on every RAG concept (embeddings, chunking, BM25, RRF, reranking, vector DBs, evaluation, grounding, query transformation)
+- [`docs/interview-prep.md`](docs/interview-prep.md) — interview Q&A, curated official docs & papers, big-document sources, lessons learned
 
 ## License
 

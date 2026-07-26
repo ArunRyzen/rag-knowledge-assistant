@@ -13,7 +13,7 @@ from rag_assistant.chat import GuardedChat
 from rag_assistant.config import Settings
 from rag_assistant.embeddings import Embedder, GeminiEmbedder
 from rag_assistant.errors import ConfigError
-from rag_assistant.generation import Answerer, GeminiAnswerer, generate_text
+from rag_assistant.generation import Answerer, GeminiAnswerer, generate_text, web_search_answer
 from rag_assistant.pipeline import RAGPipeline
 from rag_assistant.rerank import CrossEncoderReranker, NoopReranker, Reranker
 from rag_assistant.vectorstore import InMemoryVectorStore, PineconeVectorStore, VectorStore
@@ -66,13 +66,22 @@ def build_reranker(settings: Settings) -> Reranker:
 
 
 def build_chat(settings: Settings, pipeline: RAGPipeline) -> GuardedChat:
-    """The guarded chatbot: same pipeline, plus the guard/condense/check agents on Gemini."""
-    llm = partial(
-        _agent_llm,
+    """The guarded chatbot: the pipeline plus the guard/condense/check/web agents on Gemini."""
+    api_key = _require_gemini_key(settings)
+    llm = partial(_agent_llm, model=settings.gemini_model, api_key=api_key)
+    web = partial(
+        _web_agent,
         model=settings.gemini_model,
-        api_key=_require_gemini_key(settings),
+        max_tokens=settings.max_tokens,
+        api_key=api_key,
     )
-    return GuardedChat(pipeline=pipeline, llm=llm)
+    return GuardedChat(pipeline=pipeline, llm=llm, web=web)
+
+
+def _web_agent(question: str, *, model: str, max_tokens: int, api_key: str) -> str:
+    return web_search_answer(
+        model=model, max_tokens=max_tokens, api_key=api_key, question=question
+    )
 
 
 def _agent_llm(system: str, prompt: str, *, model: str, api_key: str) -> str:

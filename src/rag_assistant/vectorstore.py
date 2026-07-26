@@ -28,6 +28,8 @@ class VectorStore(Protocol):
 
     def search(self, query_embedding: list[float], k: int) -> list[RetrievedChunk]: ...
 
+    def clear(self) -> None: ...
+
     def __len__(self) -> int: ...
 
 
@@ -62,6 +64,10 @@ class InMemoryVectorStore:
             RetrievedChunk(chunk=self._chunks[i], score=float(scores[i]), source="dense")
             for i in top
         ]
+
+    def clear(self) -> None:
+        self._chunks = []
+        self._matrix = None
 
     def __len__(self) -> int:
         return len(self._chunks)
@@ -141,6 +147,14 @@ class PineconeVectorStore:
             )
             results.append(RetrievedChunk(chunk=chunk, score=float(match.score), source="dense"))
         return results
+
+    def clear(self) -> None:
+        """Delete every record. Needed when the CORPUS changes (not just grows): upserts
+        overwrite matching ids, but chunks that no longer exist would otherwise linger and
+        pollute retrieval with stale content."""
+        stats = self._index.describe_index_stats()
+        if int(stats.total_vector_count) > 0:
+            self._index.delete(delete_all=True)
 
     def __len__(self) -> int:
         return int(self._index.describe_index_stats().total_vector_count)

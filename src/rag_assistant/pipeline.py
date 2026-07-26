@@ -60,6 +60,11 @@ class RAGPipeline:
         """How many vectors the dense store currently holds (for sanity checks / status)."""
         return len(self._store)
 
+    def reset_store(self) -> None:
+        """Wipe the dense store. Use before re-ingesting a CHANGED corpus, so chunks from
+        removed documents don't linger (upserts only overwrite matching ids)."""
+        self._store.clear()
+
     def ingest(self, doc_id: str, text: str, *, dense: bool = True) -> int:
         """Chunk, embed, and index one document. Returns the number of chunks added.
 

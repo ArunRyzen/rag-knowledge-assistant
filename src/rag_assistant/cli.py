@@ -56,15 +56,24 @@ def _prepare(data: Path | None) -> RAGPipeline:
 
 @app.command()
 def ingest(
-    data: Annotated[Path | None, typer.Option(help="Folder/file of docs (.md/.txt).")] = None,
+    data: Annotated[
+        Path | None, typer.Option(help="Folder/file of docs (.md/.txt/.pdf).")
+    ] = None,
+    reset: Annotated[
+        bool, typer.Option(help="Wipe the vector store first (use when the corpus CHANGED).")
+    ] = False,
 ) -> None:
     """Chunk, embed, and index the corpus (the `data/` folder by default) into the vector store.
 
     With VECTOR_STORE=pinecone this persists — run it once, then `rag ask` freely. Freshly
     upserted records can take a few seconds to become searchable (eventual consistency).
+    Re-running upserts by chunk id (safe); pass --reset when documents were REMOVED or renamed.
     """
     settings = load_settings()
     pipeline = build_pipeline(settings)
+    if reset:
+        pipeline.reset_store()
+        typer.echo("Cleared the vector store.", err=True)
     n = _ingest_corpus(pipeline, data, dense=True)
     typer.echo(f"Ingested {n} chunks into the '{settings.vector_store}' store.")
     if settings.vector_store == "pinecone":
@@ -108,15 +117,28 @@ def chat(
     session = build_chat(settings, pipeline)
 
     def _respond(message: str) -> None:
-        turn = session.turn(message)
+        # Each turn makes several model calls (guard + answer + check, sometimes web), and the
+        # Gemini FREE tier allows only ~5/minute — so rate limits are normal, not fatal.
+        try:
+            turn = session.turn(message)
+        except Exception as exc:  # noqa: BLE001 - surface any provider error politely
+            if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
+                typer.echo(
+                    "bot> The free Gemini quota is briefly exhausted (each chat turn uses "
+                    "several model calls). Wait a minute and ask again.",
+                )
+                return
+            raise
         typer.echo(f"bot> {turn.reply}")
-        if turn.answer and turn.answer.contexts and turn.grounded:
+        if turn.source == "book" and turn.answer:
             docs = ", ".join(sorted({c.doc_id for c in turn.answer.citations}))
-            typer.echo(f"     (sources: {docs})", err=True)
+            typer.echo(f"     (book sources: {docs})", err=True)
+        elif turn.source == "web":
+            typer.echo("     [book had no answer — web search agent replied]", err=True)
         if not turn.allowed:
             typer.echo("     [input guardrail refused this message]", err=True)
         elif turn.grounded is False:
-            typer.echo("     [grounding checker vetoed the model's answer]", err=True)
+            typer.echo("     [grounding checker vetoed the book answer]", err=True)
 
     if once is not None:
         _respond(once)
