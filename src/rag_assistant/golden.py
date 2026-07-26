@@ -1,100 +1,53 @@
-"""The golden evaluation set for the `data/` corpus.
+"""The golden evaluation set for the textbook corpus in `data/`.
 
-This is the labelled dataset `rag eval` scores against. Format: one entry per test question,
-with the id(s) of the document(s) that contain the answer:
+The corpus is the Tamil Nadu State Board (Samacheer Kalvi) Class 1 English book, Term 1, split
+into one file per unit. Doc ids are the filenames without extension:
 
-    {"question": "<your question>", "relevant_doc_ids": ["<doc id>"]}
+    unit-1-my-pet  ·  unit-2-play-time  ·  unit-3-families
 
-Doc ids are filenames in `data/` without the extension (embeddings.md → "embeddings"). Labels
-are keyed to DOCUMENTS, not chunks, so the set survives any change to chunking parameters.
-
-Growing this set is Task 3 in `tasks/README.md` — every question you add makes the metrics less
-noisy and the harness more trustworthy.
+Every question below is answered by the book itself — story facts a child would be quizzed on.
+Labels are keyed to UNITS (documents), not chunks, so the set survives any change to chunking
+parameters. To grow the set, append more dicts in the same shape (that's a task in
+`tasks/README.md`).
 """
 
 from __future__ import annotations
 
 GOLDEN: list[dict[str, object]] = [
-    # embeddings.md
+    # Unit 1 — My Pet (Valli and her pet goat Chittu; Alphabet Jungle a–i; counting)
+    {"question": "Who is Valli's pet?", "relevant_doc_ids": ["unit-1-my-pet"]},
+    {"question": "What does Chittu eat?", "relevant_doc_ids": ["unit-1-my-pet"]},
     {
-        "question": "Why must query vectors come from the same model as document vectors?",
-        "relevant_doc_ids": ["embeddings"],
+        "question": "Where is the bear in the Alphabet Jungle story?",
+        "relevant_doc_ids": ["unit-1-my-pet"],
     },
     {
-        "question": "What does L2 normalization let us compute similarity with?",
-        "relevant_doc_ids": ["embeddings"],
+        "question": "How many bees do Valli and Chittu see near the farm?",
+        "relevant_doc_ids": ["unit-1-my-pet"],
     },
-    # chunking.md
+    # Unit 2 — Play Time (Come Let us Play: the rat wants to join the games)
+    {"question": "What does the rat build in the story?", "relevant_doc_ids": ["unit-2-play-time"]},
     {
-        "question": "What goes wrong when chunks are too large or too small?",
-        "relevant_doc_ids": ["chunking"],
-    },
-    {
-        "question": "What is the purpose of overlap between neighbouring chunks?",
-        "relevant_doc_ids": ["chunking"],
-    },
-    # bm25.md
-    {
-        "question": "What do the k1 and b parameters control in BM25?",
-        "relevant_doc_ids": ["bm25"],
+        "question": "Who is flying a kite when the rat asks to join?",
+        "relevant_doc_ids": ["unit-2-play-time"],
     },
     {
-        "question": "Which kinds of queries does lexical search handle better than embeddings?",
-        "relevant_doc_ids": ["bm25"],
-    },
-    # hybrid-rrf.md
-    {
-        "question": "How does Reciprocal Rank Fusion combine two ranked lists?",
-        "relevant_doc_ids": ["hybrid-rrf"],
+        "question": "Which animals are playing cricket?",
+        "relevant_doc_ids": ["unit-2-play-time"],
     },
     {
-        "question": "Why can't cosine scores and BM25 scores just be added together?",
-        "relevant_doc_ids": ["hybrid-rrf"],
+        "question": "What are the monkeys doing when the rat wants to play with them?",
+        "relevant_doc_ids": ["unit-2-play-time"],
     },
-    # reranking.md
+    # Unit 3 — Families (Nila's family; My Family and Friends)
     {
-        "question": "What is the difference between a bi-encoder and a cross-encoder?",
-        "relevant_doc_ids": ["reranking"],
+        "question": "What does Nila call her father and her mother?",
+        "relevant_doc_ids": ["unit-3-families"],
     },
+    {"question": "Where does Nila live?", "relevant_doc_ids": ["unit-3-families"]},
+    {"question": "What is Nila's sister's name?", "relevant_doc_ids": ["unit-3-families"]},
     {
-        "question": "Which metrics improve most when you add a reranker?",
-        "relevant_doc_ids": ["reranking"],
-    },
-    # vector-databases.md
-    {
-        "question": "How does the HNSW algorithm make nearest-neighbour search fast?",
-        "relevant_doc_ids": ["vector-databases"],
-    },
-    {
-        "question": "What does eventual consistency mean for Pinecone upserts?",
-        "relevant_doc_ids": ["vector-databases"],
-    },
-    # evaluation.md
-    {
-        "question": "What is the difference between recall@k and MRR?",
-        "relevant_doc_ids": ["evaluation"],
-    },
-    {
-        "question": "Why label golden-set relevance at the document level instead of chunks?",
-        "relevant_doc_ids": ["evaluation"],
-    },
-    # grounded-generation.md
-    {
-        "question": "How does the system prompt prevent hallucinated answers?",
-        "relevant_doc_ids": ["grounded-generation"],
-    },
-    {
-        "question": "What is prompt injection through retrieved documents?",
-        "relevant_doc_ids": ["grounded-generation"],
-    },
-    # query-transformation.pdf — yes, a PDF: extraction happens in corpus.py, then it's
-    # chunked/embedded exactly like every markdown file.
-    {
-        "question": "How does HyDE use a hypothetical answer to improve search?",
-        "relevant_doc_ids": ["query-transformation"],
-    },
-    {
-        "question": "What does multi-query expansion generate before fusing results?",
-        "relevant_doc_ids": ["query-transformation"],
+        "question": "What jobs do Abdul's mother and father do?",
+        "relevant_doc_ids": ["unit-3-families"],
     },
 ]

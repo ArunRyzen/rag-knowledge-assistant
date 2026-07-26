@@ -95,6 +95,37 @@ def generate_text(
     return response.text or ""
 
 
+# System prompt for the web-search agent (chat.py's fallback when the book has no answer).
+_WEB_SYSTEM = (
+    "You are a friendly educational assistant for young school students. Use web search to "
+    "answer the question briefly, in simple words a child can understand. Only answer "
+    "educational questions (school subjects, words, numbers, nature, general knowledge). "
+    "Keep it to 2-3 short sentences."
+)
+
+
+def web_search_answer(*, model: str, max_tokens: int, api_key: str | None, question: str) -> str:
+    """Answer via Gemini WITH Google Search grounding enabled.
+
+    Same generate_content call as above, plus `tools=[google_search]` — Gemini then runs real
+    web searches and grounds its answer in the results. No extra API key needed.
+    """
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=question,
+        config=types.GenerateContentConfig(
+            system_instruction=_WEB_SYSTEM,
+            max_output_tokens=max_tokens,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+        ),
+    )
+    return response.text or ""
+
+
 class GeminiAnswerer:
     """Grounded, cited answer synthesis via the Gemini API."""
 
